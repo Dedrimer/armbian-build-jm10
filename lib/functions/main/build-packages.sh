@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0
 #
-# Copyright (c) 2013-2023 Igor Pecovnik, igor@armbian.com
+# Copyright (c) 2013-2026 Igor Pecovnik, igor@armbian.com
 #
 # This file is a part of the Armbian Build Framework
 # https://github.com/armbian/build/
@@ -31,10 +31,6 @@ function determine_artifacts_to_build_for_image() {
 		artifacts_to_build+=("fake_ubuntu_advantage_tools")
 	fi
 
-	if [[ "${PACKAGE_LIST_RM}" != *armbian-config* ]]; then
-		artifacts_to_build+=("armbian-config")
-	fi
-
 	if [[ "${PACKAGE_LIST_RM}" != *armbian-zsh* ]]; then
 		if [[ $BUILD_MINIMAL != yes ]]; then
 			artifacts_to_build+=("armbian-zsh")
@@ -48,13 +44,8 @@ function determine_artifacts_to_build_for_image() {
 	# Userspace, BOARD+BRANCH specific (not RELEASE)
 	artifacts_to_build+=("armbian-bsp-cli")
 
-	# Userspace, RELEASE-specific artifacts.
-	if [[ -n "${RELEASE}" ]]; then
-		if [[ -n "${DESKTOP_ENVIRONMENT}" ]]; then
-			artifacts_to_build+=("armbian-desktop")
-			artifacts_to_build+=("armbian-bsp-desktop")
-		fi
-	fi
+	# Desktop packages are now installed by armbian-config (module_desktops)
+	# during rootfs creation in distro-agnostic.sh. No per-DE artifact to build.
 
 	# If we're only dumping the config, include the rootfs artifact.
 	# In a "real" build, this artifact is built/consumed by get_or_create_rootfs_cache_chroot_sdcard(), not here.
@@ -74,7 +65,7 @@ function main_default_build_packages() {
 	if [[ "${IGNORE_UPDATES}" != "yes" ]]; then
 		LOG_SECTION="clean_deprecated_mountpoints" do_with_logging clean_deprecated_mountpoints
 
-		for cleaning_fragment in $(tr ',' ' ' <<< "${CLEAN_LEVEL}"); do
+		for cleaning_fragment in ${CLEAN_LEVEL//,/ }; do
 			if [[ $cleaning_fragment != sources ]] && [[ $cleaning_fragment != none ]] && [[ $cleaning_fragment != make* ]]; then
 				LOG_SECTION="cleaning_${cleaning_fragment}" do_with_logging general_cleaning "${cleaning_fragment}"
 			fi

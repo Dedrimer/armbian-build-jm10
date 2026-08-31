@@ -1,18 +1,13 @@
 # Rockchip RK3566 quad core 8GB RAM SoC WIFI/BT eMMC USB2/3 SATA
-BOARD_NAME="jp-tvbox-3566"
+BOARD_NAME="JP-TVbox-3566"
+BOARD_VENDOR="rockchip"
 BOARDFAMILY="rk35xx"
-<<<<<<< HEAD
-BOARD_MAINTAINER=""
-BOOTCONFIG="jp-tvbox-3566_defconfig"
-BOOT_SOC="rk3566"
-KERNEL_TARGET="legacy,vendor,edge"
-=======
 BOARD_MAINTAINER="tdleiyao"
+INTRODUCED="2024"
 #BOOTCONFIG="rock-3c-rk3566_defconfig"
 BOOTCONFIG="rk3568_defconfig"
-KERNEL_TARGET="current,edge"
-KERNEL_TEST_TARGET="current"
->>>>>>> upstream/main
+BOOT_SOC="rk3566"
+KERNEL_TARGET="legacy,vendor,edge"
 FULL_DESKTOP="yes"
 BOOT_LOGO="desktop"
 BOOT_FDT_FILE="rockchip/rk3566-jp-tvbox.dtb"

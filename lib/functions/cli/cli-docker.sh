@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0
 #
-# Copyright (c) 2013-2023 Igor Pecovnik, igor@armbian.com
+# Copyright (c) 2013-2026 Igor Pecovnik, igor@armbian.com
 #
 # This file is a part of the Armbian Build Framework
 # https://github.com/armbian/build/
@@ -17,7 +17,7 @@ function cli_docker_pre_run() {
 		shell)
 			# inside-function-function: a dynamic hook, only triggered if this CLI runs.
 			function add_host_dependencies__ssh_client_for_docker_shell_over_ssh() {
-				declare -g EXTRA_BUILD_DEPS="${EXTRA_BUILD_DEPS} openssh-client"
+				EXTRA_BUILD_DEPS+=("openssh-client")
 			}
 			declare -g DOCKER_PASS_SSH_AGENT="yes" # Pass SSH agent to docker
 			;;
@@ -34,6 +34,12 @@ function cli_docker_run() {
 	# It's gonna be picked up by export_ansi_logs() and included in the final log, if it exists.
 	declare -g GIT_INFO_ANSI
 	GIT_INFO_ANSI="$(prepare_ansi_git_info_log_header)"
+	# GIT_INFO_ANSI can grow to be quite large if there are many changed files.
+	# If it's too big, it will cause "argument list too long" errors when launching docker.
+	# Limit it to 1024 characters, otherwise replace it with a simple message.
+	if [[ ${#GIT_INFO_ANSI} -gt 1024 ]]; then
+		GIT_INFO_ANSI="Armbian: too many git changes to list."
+	fi
 
 	# Same stuff for BUILD_REPOSITORY_URL and BUILD_REPOSITORY_COMMIT.
 	if [[ -d "${SRC}/.git" && "${CONFIG_DEFS_ONLY}" != "yes" ]]; then # don't waste time if only gathering config defs
@@ -41,6 +47,12 @@ function cli_docker_run() {
 	fi
 
 	LOG_SECTION="docker_cli_prepare" do_with_logging docker_cli_prepare
+
+	# Ensure Docker auto-pull cronjob is installed (controlled by ARMBIAN_DOCKER_AUTO_PULL flag)
+	# Only run this when not generating Dockerfile only
+	if [[ "${DOCKERFILE_GENERATE_ONLY}" != "yes" ]]; then
+		docker_ensure_auto_pull_cronjob
+	fi
 
 	# @TODO: and can be very well said that in CI, we always want FAST_DOCKER=yes, unless we're building the Docker image itself.
 	if [[ "${FAST_DOCKER:-"no"}" != "yes" ]]; then # "no, I want *slow* docker" -- no one, ever
@@ -59,6 +71,9 @@ function cli_docker_run() {
 	ARMBIAN_CLI_RELAUNCH_PARAMS+=(["SET_OWNER_TO_UID"]="${EUID}")                 # fix the owner of files to our UID
 	ARMBIAN_CLI_RELAUNCH_PARAMS+=(["ARMBIAN_BUILD_UUID"]="${ARMBIAN_BUILD_UUID}") # pass down our uuid to the docker instance
 	ARMBIAN_CLI_RELAUNCH_PARAMS+=(["SKIP_LOG_ARCHIVE"]="yes")                     # launched docker instance will not cleanup logs.
+	if [[ -n "${DOCKER_NICE:-}" ]]; then
+		ARMBIAN_CLI_RELAUNCH_PARAMS+=(["DOCKER_NICE"]="${DOCKER_NICE}") # propagated `nice` value
+	fi
 
 	# Produce the re-launch params.
 	declare -g ARMBIAN_CLI_FINAL_RELAUNCH_ARGS=()

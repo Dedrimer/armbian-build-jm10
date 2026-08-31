@@ -1,8 +1,10 @@
 # RISC-V LicheePi 4A
 BOARD_NAME="LicheePi 4A"
+BOARD_VENDOR="sipeed"
 BOARDFAMILY="thead"
 BOARD_MAINTAINER="chainsx"
-KERNEL_TARGET="legacy,current,edge"
+INTRODUCED="2021"
+KERNEL_TARGET="current,edge,legacy"
 KERNEL_TEST_TARGET="current"
 BOOT_FDT_FILE="thead/th1520-lichee-pi-4a.dtb"
 SRC_EXTLINUX="yes"

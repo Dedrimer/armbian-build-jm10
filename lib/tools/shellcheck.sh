@@ -2,12 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-2.0
 #
-# Copyright (c) 2013-2023 Igor Pecovnik, igor@armbian.com
+# Copyright (c) 2013-2026 Igor Pecovnik, igor@armbian.com
 #
 # This file is a part of the Armbian Build Framework
 # https://github.com/armbian/build/
 
-SHELLCHECK_VERSION=${SHELLCHECK_VERSION:-0.10.0} # https://github.com/koalaman/shellcheck/releases
+SHELLCHECK_VERSION=${SHELLCHECK_VERSION:-0.11.0} # https://github.com/koalaman/shellcheck/releases
 
 SRC="$(
 	cd "$(dirname "$0")/../.."
@@ -51,13 +51,26 @@ if [[ ! -f "${SHELLCHECK_BIN}" ]]; then
 	echo "MACHINE: ${MACHINE}"
 	echo "Down URL: ${DOWN_URL}"
 	echo "SHELLCHECK_BIN: ${SHELLCHECK_BIN}"
-	wget -O "${SHELLCHECK_BIN}.tar.xz" "${DOWN_URL}"
+	curl -fLo "${SHELLCHECK_BIN}.tar.xz" "${DOWN_URL}" || {
+		echo "download of shellcheck failed from ${DOWN_URL}"
+		rm -f "${SHELLCHECK_BIN}.tar.xz"
+		exit 1
+	}
 	tar -xf "${SHELLCHECK_BIN}.tar.xz" -C "${DIR_SHELLCHECK}" "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
 	mv -v "${DIR_SHELLCHECK}/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "${SHELLCHECK_BIN}"
 	rm -rf "${DIR_SHELLCHECK}/shellcheck-v${SHELLCHECK_VERSION}" "${SHELLCHECK_BIN}.tar.xz"
 	chmod +x "${SHELLCHECK_BIN}"
 fi
 ACTUAL_VERSION="$("${SHELLCHECK_BIN}" --version | grep "^version")"
+
+# Install-only mode: callers that just need the binary (CI workflows
+# composing reviewdog / action-suggester on top of the framework's
+# platform-aware download cache) can short-circuit the linting passes
+# once SHELLCHECK_BIN is populated.
+if [[ -n "${SHELLCHECK_INSTALL_ONLY}" ]]; then
+	echo "SHELLCHECK_INSTALL_ONLY set, exiting after install. SHELLCHECK_BIN=${SHELLCHECK_BIN}"
+	exit 0
+fi
 
 function calculate_params_for_severity() {
 	declare SEVERITY="${SEVERITY:-"critical"}"

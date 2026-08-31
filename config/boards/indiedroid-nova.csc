@@ -1,10 +1,12 @@
 # Rockchip RK3588S octa core 4/8/16GB RAM SoC eMMC USB3 USB-C GbE
 declare -g BOARD_NAME="Indiedroid Nova"
+declare -g BOARD_VENDOR="rockchip"
 declare -g BOARD_MAINTAINER="lanefu"
+declare -g INTRODUCED="2022"
 declare -g BOARDFAMILY="rockchip-rk3588"
 declare -g BOOTCONFIG="indiedroid_defconfig" # vendor name, not standard, see hook below, set BOOT_SOC below to compensate
 declare -g BOOT_SOC="rk3588"
-declare -g KERNEL_TARGET="edge,current,vendor"
+declare -g KERNEL_TARGET="current,edge,vendor"
 declare -g FULL_DESKTOP="yes"
 declare -g BOOT_LOGO="desktop"
 declare -g BOOT_FDT_FILE="rockchip/rk3588s-indiedroid-nova.dtb"

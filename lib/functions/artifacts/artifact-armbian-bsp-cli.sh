@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0
 #
-# Copyright (c) 2013-2023 Igor Pecovnik, igor@armbian.com
+# Copyright (c) 2013-2026 Igor Pecovnik, igor@armbian.com
 #
 # This file is a part of the Armbian Build Framework
 # https://github.com/armbian/build/
@@ -60,6 +60,7 @@ function artifact_armbian-bsp-cli_prepare_version() {
 		"INITRD_ARCH: ${INITRD_ARCH}"                                 # /etc/armbian-release
 		"KERNEL_IMAGE_TYPE: ${KERNEL_IMAGE_TYPE}"                     # /etc/armbian-release
 		"VENDOR: ${VENDOR}"                                           # /etc/armbian-release
+		"VENDORCOLOR: ${VENDORCOLOR}"                                 # /etc/armbian-release
 		"OVERLAY_DIR: ${OVERLAY_DIR}"                                 # /etc/armbian-release
 		"KERNEL_TARGET: ${KERNEL_TARGET}"                             # /etc/armbian-release
 		"KERNEL_TEST_TARGET: ${KERNEL_TEST_TARGET}"                   # /etc/armbian-release

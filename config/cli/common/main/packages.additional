@@ -4,7 +4,6 @@ aptitude
 automake
 avahi-autoipd
 bison
-btrfs-progs
 build-essential
 command-not-found
 cracklib-runtime
@@ -47,7 +46,7 @@ qrencode
 rfkill
 rng-tools
 screen
-software-properties-common
+#software-properties-common
 smartmontools
 stress
 sysfsutils

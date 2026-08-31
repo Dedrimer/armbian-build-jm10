@@ -1,14 +1,16 @@
 # Allwinner H5 quad core 512MB RAM SoC Wi-Fi/BT
 BOARD_NAME="Orange Pi Zero Plus 2"
+BOARD_VENDOR="xunlong"
 BOARDFAMILY="sun50iw2"
 BOARD_MAINTAINER=""
+INTRODUCED="2017"
 BOOTCONFIG="orangepi_zero_plus2_defconfig"
 MODULES_LEGACY="g_serial"
 MODULES_CURRENT="g_serial"
 DEFAULT_OVERLAYS="gpio-regulator-1.3v usbhost2 usbhost3"
 HAS_VIDEO_OUTPUT="no"
 SERIALCON="ttyS0,ttyGS0"
-KERNEL_TARGET="legacy,current,edge"
+KERNEL_TARGET="current,edge,legacy"
 KERNEL_TEST_TARGET="current"
 CRUSTCONFIG="h5_defconfig"
 

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0
 #
-# Copyright (c) 2013-2023 Igor Pecovnik, igor@armbian.com
+# Copyright (c) 2013-2026 Igor Pecovnik, igor@armbian.com
 #
 # This file is a part of the Armbian Build Framework
 # https://github.com/armbian/build/
@@ -345,7 +345,11 @@ function artifact_dump_json_info() {
 		declaration="$(declare -p "${var}")"
 		# Special handling for arrays. Syntax is not pretty, but works.
 		if [[ "${declaration}" =~ "declare -a" ]]; then
-			eval "declare ${var}_ARRAY=\"\${${var}[*]}\""
+			# nameref alias avoids eval; ${var} is from a hard-coded list so
+			# it's already a valid identifier.
+			local -n _ao_src="${var}"
+			declare "${var}_ARRAY=${_ao_src[*]}"
+			unset -n _ao_src
 			ARTIFACTS_VAR_DICT["${var}_ARRAY"]="$(declare -p "${var}_ARRAY")"
 		else
 			ARTIFACTS_VAR_DICT["${var}"]="${declaration}"
@@ -397,7 +401,7 @@ function build_artifact_for_image() {
 
 function pack_artifact_to_local_cache() {
 	if [[ "${artifact_type}" == "deb-tar" ]]; then
-		declare -a files_to_tar=()
+		wait_for_disk_sync "before pack_artifact_to_local_cache for deb-tar"
 		run_host_command_logged tar -C "${artifact_base_dir}" -cf "${artifact_final_file}" "${artifact_map_debs[@]}"
 		display_alert "Created deb-tar artifact" "deb-tar: ${artifact_final_file}" "info"
 	fi

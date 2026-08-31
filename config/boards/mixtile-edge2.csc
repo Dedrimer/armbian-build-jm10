@@ -1,7 +1,10 @@
 # Rockchip RK3568 quad core 4GB-8GB GBE PCIe USB3 SATA NVMe
 BOARD_NAME="Mixtile Edge 2"
-BOARDFAMILY="rockchip64"
+BOARD_VENDOR="mixtile"
+BOARDFAMILY="rk35xx"
+BOOTCONFIG="mixtile-edge2-rk3568_defconfig"
 BOARD_MAINTAINER=""
+INTRODUCED="2024"
 BOOT_SOC="rk3568"
 KERNEL_TARGET="current,edge,vendor"
 BOOT_FDT_FILE="rockchip/rk3568-mixtile-edge2.dtb"
@@ -19,10 +22,10 @@ function post_family_config__h96_max_use_mainline_uboot() {
 
 	display_alert "$BOARD" "Using mainline U-Boot for $BOARD / $BRANCH" "info"
 
-	declare -g BOOTCONFIG="generic-rk3568_defconfig"             # Use generic defconfig which should boot all RK3568 boards
-	declare -g BOOTSOURCE="https://github.com/u-boot/u-boot.git" # We ❤️ Mainline U-Boot
-	declare -g BOOTBRANCH="tag:v2024.07"
-	declare -g BOOTPATCHDIR="v2024.07/board_${BOARD}"
+	declare -g BOOTCONFIG="generic-rk3568_defconfig"
+	declare -g BOOTSOURCE="https://github.com/u-boot/u-boot.git"
+	declare -g BOOTBRANCH="tag:v2026.07"
+	declare -g BOOTPATCHDIR="v2026.07/board_${BOARD}"
 	declare -g BOOTDIR="u-boot-${BOARD}" # do not share u-boot directory
 
 	declare -g UBOOT_TARGET_MAP="BL31=${RKBIN_DIR}/${BL31_BLOB} ROCKCHIP_TPL=${RKBIN_DIR}/${DDR_BLOB};;u-boot-rockchip.bin"
@@ -34,21 +37,4 @@ function post_family_config__h96_max_use_mainline_uboot() {
 	function write_uboot_platform() {
 		dd "if=$1/u-boot-rockchip.bin" "of=$2" bs=32k seek=1 conv=notrunc status=none
 	}
-}
-
-function post_family_config_branch_vendor__kernel_and_uboot_rk35xx_mixtile_edge2() {
-	# Copypasta from rockchip-rk3588.conf family file -- we _really_ gotta find a better way!
-	declare -g KERNEL_MAJOR_MINOR="6.1" # Major and minor versions of this kernel.
-	declare -g KERNELSOURCE='https://github.com/armbian/linux-rockchip.git'
-	declare -g KERNELBRANCH='branch:rk-6.1-rkr3'
-	declare -g KERNELPATCHDIR='rk35xx-vendor-6.1'
-	declare -g LINUXFAMILY=rk35xx
-	declare -g -i KERNEL_GIT_CACHE_TTL=120 # 2 minutes
-	declare -g OVERLAY_PREFIX='rk35xx'
-
-	# Use vendor u-boot, same as rk35xx; we've a defconfig and dt in there
-	declare -g BOOTSOURCE='https://github.com/radxa/u-boot.git'
-	declare -g BOOTBRANCH='branch:next-dev-v2024.03' # Always use same version as rk3588, they share a patch dir
-	declare -g BOOTPATCHDIR="legacy/u-boot-radxa-rk35xx"
-	declare -g BOOTCONFIG="mixtile-edge2-rk3568_defconfig"
 }

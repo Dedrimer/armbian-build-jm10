@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0
 #
-# Copyright (c) 2013-2023 Igor Pecovnik, igor@armbian.com
+# Copyright (c) 2013-2026 Igor Pecovnik, igor@armbian.com
 #
 # This file is a part of the Armbian Build Framework
 # https://github.com/armbian/build/
@@ -28,13 +28,13 @@
 # - building the .debs.
 
 is_enabled() {
-	grep -q "^$1=y" include/config/auto.conf
+	grep -q "^$1=y" "${kernel_work_dir}/include/config/auto.conf"
 }
 
 if_enabled_echo() {
 	if is_enabled "$1"; then
 		echo -n "$2"
-	elif [ $# -ge 3 ]; then
+	elif [[ $# -ge 3 ]]; then
 		echo -n "$3"
 	fi
 }
@@ -202,9 +202,44 @@ function kernel_package_callback_linux_image() {
 
 	# @TODO: we expect _all_ kernels to produce this, which is... not true.
 	declare kernel_pre_package_path="${tmp_kernel_install_dirs[INSTALL_PATH]}"
-	declare kernel_image_pre_package_path="${kernel_pre_package_path}/vmlinuz-${kernel_version_family}"
-	declare installed_image_path="boot/vmlinuz-${kernel_version_family}" # using old mkdebian terminology here for compatibility
+	kernel_image_installed_file_name=$(basename $(ls ${kernel_pre_package_path}/vmlinu*-${kernel_version_family}))
+	kernel_image_name=${kernel_image_installed_file_name%%-*}
 
+	# installkernel(8) (/sbin/installkernel) and arch/arm64/boot/install.sh name an *uncompressed* arm64
+	# 'Image' as vmlinux-<ver> -- only Image.gz / vmlinuz.efi become vmlinuz-<ver>. That file is a perfectly
+	# bootable Image, but every Armbian consumer and boot script (image-output-abl/-iso, extlinux/boot.cmd,
+	# the vfat-cleanup hook below) expects vmlinuz-<ver>. Normalize the name back to vmlinuz -- unless this
+	# arch genuinely boots a raw vmlinux (KERNEL_IMAGE_TYPE=vmlinux, e.g. loong64), where the name is correct.
+	if [[ "${kernel_image_name}" == "vmlinux" && "${KERNEL_IMAGE_TYPE}" != "vmlinux" ]]; then
+		display_alert "Normalizing misnamed kernel image" "${kernel_image_installed_file_name} -> vmlinuz-${kernel_version_family}" "info"
+		run_host_command_logged mv "${kernel_pre_package_path}/${kernel_image_installed_file_name}" "${kernel_pre_package_path}/vmlinuz-${kernel_version_family}"
+		kernel_image_installed_file_name="vmlinuz-${kernel_version_family}"
+		kernel_image_name="vmlinuz"
+	fi
+	display_alert "linux-image deb packaging kernel_image_name" "${kernel_image_name}" "info"
+	declare kernel_image_pre_package_path="${kernel_pre_package_path}/${kernel_image_name}-${kernel_version_family}"
+	declare installed_image_path="boot/${kernel_image_name}-${kernel_version_family}" # using old mkdebian terminology here for compatibility
+
+	if [[ "${KERNEL_DO_STUBBLE}" == "yes" ]]; then
+		# Use built stubble paths, fallback to system if not available
+		local stubble_find_dtbs="${STUBBLE_FIND_DTBS:-/usr/libexec/stubble/finddtbs.py}"
+		local stubble_efi="${STUBBLE_EFI_PATH:-/usr/lib/stubble/stubble.efi}"
+		local stubble_hwids="${STUBBLE_HWIDS_DIR:-/usr/share/stubble/hwids}"
+		local stubble_sbat="${STUBBLE_SBAT_PATH:-/usr/share/stubble/sbat}"
+
+		# Run finddtbs and validate output
+		stubble_dtbs_raw=$("${stubble_find_dtbs}" "${tmp_kernel_install_dirs[INSTALL_DTBS_PATH]}" "${stubble_hwids}")
+		if [[ $? -ne 0 ]]; then
+			exit_with_error "finddtbs.py failed" "${stubble_find_dtbs}"
+		fi
+		stubble_dtbs=$(echo "${stubble_dtbs_raw}" | sed 's|.*|--devicetree-auto=&|' | tr '\n' ' ')
+		# EXTRA_STUBBLE_DEVICETREES: family-supplied DTBs not yet in stubble hwids (see uefidt.conf).
+		for extra_dtb in "${EXTRA_STUBBLE_DEVICETREES[@]}"; do
+			stubble_dtbs+=" --devicetree-auto=${tmp_kernel_install_dirs[INSTALL_DTBS_PATH]}/${extra_dtb}"
+		done
+		run_host_command_logged /usr/bin/ukify build --linux="${kernel_image_pre_package_path}" --stub="${stubble_efi}" --hwids="${stubble_hwids}" --sbat="@${stubble_sbat}" ${stubble_dtbs} --output="${kernel_pre_package_path}/${kernel_image_name}-${kernel_version_family}.efi"
+		run_host_command_logged mv "${kernel_pre_package_path}/${kernel_image_name}-${kernel_version_family}.efi" "${kernel_pre_package_path}/${kernel_image_name}-${kernel_version_family}"
+	fi
 	display_alert "Showing contents of Kbuild produced /boot" "linux-image" "debug"
 	run_host_command_logged tree -C --du -h "${tmp_kernel_install_dirs[INSTALL_PATH]}"
 
@@ -262,7 +297,8 @@ function kernel_package_callback_linux_image() {
 		Maintainer: ${MAINTAINER} <${MAINTAINERMAIL}>
 		Section: kernel
 		Priority: optional
-		Provides: linux-image, linux-image-armbian, armbian-$BRANCH
+		Depends: initramfs-tools | linux-initramfs-tool
+		Provides: linux-image, linux-image-armbian, armbian-$BRANCH, wireguard-modules
 		Description: Armbian Linux $BRANCH kernel image $kernel_version_family
 		 This package contains the Linux kernel, modules and corresponding other files.
 		 ${artifact_version_reason:-"${kernel_version_family}"}
@@ -385,6 +421,7 @@ function kernel_package_callback_linux_headers() {
 	[[ "${SRC_ARCH}" == "amd64" ]] && SRC_ARCH="x86"
 	[[ "${SRC_ARCH}" == "armhf" ]] && SRC_ARCH="arm"
 	[[ "${SRC_ARCH}" == "riscv64" ]] && SRC_ARCH="riscv"
+	[[ "${SRC_ARCH}" == "loong64" ]] && SRC_ARCH="loongarch"
 	# @TODO: added KERNEL_SRC_ARCH to each arch'es .config file; let's make sure they're sane. Just use KERNEL_SRC_ARCH after confirmed.
 	# Lets check and warn if it isn't. If warns don't popup over time we remove and just use ARCHITECTURE later.
 	if [[ "${SRC_ARCH}" != "${KERNEL_SRC_ARCH}" ]]; then
@@ -435,6 +472,16 @@ function kernel_package_callback_linux_headers() {
 		echo -e "clean:\n\techo fake clean for tools/vm" > "${headers_target_dir}/tools/vm/Makefile"
 	fi
 
+	# Small detour: in v6.14-rc1, in commit https://github.com/torvalds/linux/commit/e19bde2269ca,
+	#               the tools/pci dir was renamed to tools/testing/selftests/pci_endpoint.
+	#               Unfortunately tools/Makefile still expects it to exist,
+	#               and "make clean" in the "/tools" dir fails. Drop in a fake Makefile there to work around this.
+	if [[ ! -f "${headers_target_dir}/tools/pci/Makefile" ]] && [[ "${KERNEL_MAJOR_MINOR}" == "6.14" ]]; then
+		display_alert "Creating fake tools/pci/Makefile" "6.14 hackfix" "debug"
+		run_host_command_logged mkdir -p "${headers_target_dir}/tools/pci"
+		echo -e "clean:\n\techo fake clean for tools/pci" > "${headers_target_dir}/tools/pci/Makefile"
+	fi
+
 	# Hack for 6.5-rc1: create include/linux dir so the 'clean' step below doesn't fail. I've reported upstream...
 	display_alert "Creating fake counter/include/linux" "6.5-rc1 hackfix" "debug"
 	run_host_command_logged mkdir -p "${headers_target_dir}/tools/counter/include/linux"
@@ -444,10 +491,12 @@ function kernel_package_callback_linux_headers() {
 	# Understand: I'm sending the logs of this to the bitbucket ON PURPOSE: "clean" tries to use clang, ALSA, etc, which are not available.
 	#             The logs produced during this step throw off developers casually looking at the logs.
 	#             Important: if the steps _fail_ here, you'll have to enable DEBUG=yes to see what's going on.
+	#
+	# In order for the cleanup to be correct  for tools, we need to pass the VMLINUX_BTF variable,
+	# which contains the real path to the newly compiled vmlinux file.
 	declare make_bitbucket="&> /dev/null"
-	[[ "${DEBUG}" == "yes" ]] && make_bitbucket=""
-	run_host_command_logged cd "${headers_target_dir}" "&&" make "ARCH=${SRC_ARCH}" "M=scripts" clean "${make_bitbucket}"
-	run_host_command_logged cd "${headers_target_dir}/tools" "&&" make "ARCH=${SRC_ARCH}" clean "${make_bitbucket}"
+	run_host_command_logged cd "${headers_target_dir}" "&&" make "ARCH=${SRC_ARCH}" "M=scripts" clean "${make_bitbucket}" "||" make "ARCH=${SRC_ARCH}" "M=scripts" clean
+	run_host_command_logged cd "${headers_target_dir}/tools" "&&" make "ARCH=${SRC_ARCH}" "VMLINUX_BTF=${kernel_work_dir}/vmlinux" clean "${make_bitbucket}" "||" make "ARCH=${SRC_ARCH}" "VMLINUX_BTF=${kernel_work_dir}/vmlinux" clean
 
 	# Trim down on the tools dir a bit after cleaning.
 	rm -rf "${headers_target_dir}/tools/perf" "${headers_target_dir}/tools/testing"
@@ -457,12 +506,31 @@ function kernel_package_callback_linux_headers() {
 	[[ -f "${kernel_work_dir}/scripts/module.lds" ]] &&
 		run_host_command_logged cp -v "${kernel_work_dir}/scripts/module.lds" "${headers_target_dir}/scripts/module.lds"
 
+	# Preserve build-time kernel config as a sidecar tarball.
+	# postinst runs `make olddefconfig` which re-evaluates toolchain availability on the target host
+	# and may silently disable CONFIG_* options that were active at kernel build time
+	# (e.g. CONFIG_CC_IS_CLANG, CONFIG_LTO_CLANG, CONFIG_DEBUG_INFO_BTF).
+	# This affects both include/generated/autoconf.h (used by the C preprocessor) and
+	# include/config/auto.conf + include/config/ marker files (used by kbuild make rules), as well as
+	# include/generated/rustc_cfg (used by Rust builds).
+	# All of these are build artifacts and must describe the compiled kernel, not the target host.
+	# See: https://github.com/armbian/build/issues/9425
+	if [[ -f "${kernel_work_dir}/include/config/auto.conf" ]]; then
+		run_host_command_logged mkdir -p "${headers_target_dir}/include/generated"
+		local _sidecar_paths=("include/config")
+		[[ -f "${kernel_work_dir}/include/generated/autoconf.h" ]] && _sidecar_paths+=("include/generated/autoconf.h")
+		[[ -f "${kernel_work_dir}/include/generated/rustc_cfg" ]] && _sidecar_paths+=("include/generated/rustc_cfg")
+		run_host_command_logged tar -C "${kernel_work_dir}" -czf \
+			"${headers_target_dir}/include/generated/.armbian-build.tar.gz" \
+			"${_sidecar_paths[@]}"
+	fi
+
 	if [[ "${DEBUG}" == "yes" ]]; then
 		# Check that no binaries are included by now. Expensive... @TODO: remove after me make sure.
 		display_alert "Checking for binaries in kernel headers" "${headers_target_dir}" "debug"
 		(
 			cd "${headers_target_dir}" || exit 33
-			find . -type f | grep -v -e "include/config/" -e "\.h$" -e ".c$" -e "Makefile$" -e "Kconfig$" -e "Kbuild$" -e "\.cocci$" | xargs file | grep -v -e "ASCII" -e "script text" -e "empty" -e "Unicode text" -e "symbolic link" -e "CSV text" -e "SAS 7+" || true
+			find . -type f | grep -v -e "include/config/" -e "include/generated/\.armbian-build\.tar\.gz" -e "\.h$" -e ".c$" -e "Makefile$" -e "Kconfig$" -e "Kbuild$" -e "\.cocci$" | xargs file | grep -v -e "ASCII" -e "script text" -e "empty" -e "Unicode text" -e "symbolic link" -e "CSV text" -e "SAS 7+" || true
 		)
 	fi
 
@@ -475,6 +543,9 @@ function kernel_package_callback_linux_headers() {
 
 	# Generate a control file
 	# TODO: libssl-dev is only required if we're signing modules, which is a kernel .config option.
+	# Note: 'pahole | dwarves' alternative — older releases (buster/bullseye/focal) ship pahole inside the
+	# 'dwarves' package; standalone 'pahole' exists from bookworm/jammy onward. When support for these
+	# releases is dropped, simplify to 'pahole'.
 	cat <<- CONTROL_FILE > "${package_DEBIAN_dir}/control"
 		Version: ${artifact_version}
 		Maintainer: ${MAINTAINER} <${MAINTAINERMAIL}>
@@ -482,8 +553,8 @@ function kernel_package_callback_linux_headers() {
 		Package: ${package_name}
 		Architecture: ${ARCH}
 		Priority: optional
-		Provides: linux-headers, linux-headers-armbian, armbian-$BRANCH
-		Depends: make, gcc, libc6-dev, bison, flex, libssl-dev, libelf-dev
+		Provides: linux-headers (= ${kernel_version}), linux-headers-armbian, armbian-$BRANCH
+		Depends: make, gcc, libc6-dev, bison, flex, libssl-dev, libelf-dev, pahole | dwarves
 		Description: Armbian Linux $BRANCH headers ${kernel_version_family}
 		 This package provides kernel header files for ${kernel_version_family}
 		 .
@@ -515,12 +586,21 @@ function kernel_package_callback_linux_headers() {
 		cat <<- EOT_POSTINST
 			cd "/usr/src/linux-headers-${kernel_version_family}"
 			NCPU=\$(grep -c 'processor' /proc/cpuinfo)
-			echo "Compiling kernel-headers tools (${kernel_version_family}) using \$NCPU CPUs - please wait ..."
-			yes "" | make ARCH="${SRC_ARCH}" oldconfig
+			echo "Configuring kernel-headers (${kernel_version_family}) - please wait ..."
+			make ARCH="${SRC_ARCH}" olddefconfig
+
+			echo "Compiling kernel-headers scripts (${kernel_version_family}) using \$NCPU CPUs - please wait ..."
 			make ARCH="${SRC_ARCH}" -j\$NCPU scripts
-			make ARCH="${SRC_ARCH}" -j\$NCPU M=scripts/mod/
+
+			echo "Compiling kernel-headers scripts/mod (${kernel_version_family}) using \$NCPU CPUs - please wait ..."
+			make ARCH="${SRC_ARCH}" -j\$NCPU M=scripts/mod
+
+			echo "Compiling resolve_btfids tools for assigning stable BTF type IDs to kernel symbols"
+			make ARCH="${SRC_ARCH}" -j\$NCPU tools/bpf/resolve_btfids
+
 			# make ARCH="${SRC_ARCH}" -j\$NCPU modules_prepare # depends on too much other stuff.
-			echo "Done compiling kernel-headers tools (${kernel_version_family})."
+			echo "Done compiling kernel-headers (${kernel_version_family})."
+
 		EOT_POSTINST
 
 		if [[ "${ARCH}" == "amd64" ]]; then # This really only works on x86/amd64; @TODO revisit later
@@ -533,6 +613,12 @@ function kernel_package_callback_linux_headers() {
 
 		cat <<- EOT_POSTINST_FINISH
 			echo "Done compiling kernel-headers tools (${kernel_version_family})."
+
+			# Restore build-time config after all make steps. See: https://github.com/armbian/build/issues/9425
+			if [[ -f include/generated/.armbian-build.tar.gz ]]; then
+				tar -C . -xzf include/generated/.armbian-build.tar.gz
+				rm -f include/generated/.armbian-build.tar.gz
+			fi
 		EOT_POSTINST_FINISH
 	)
 }

@@ -14,3 +14,15 @@ network:
       dhcp4: yes
       dhcp6: yes
       ipv6-privacy: yes # Enabled by default on most current systems, but networkd currently doesn't enable IPv6 privacy by default, see https://man.archlinux.org/man/systemd.network.5
+    all-lan-interfaces: # interfaces named 'lan'/'lanX' (DSA switch labels or udev renames), e.g. nanopi-r2s, bananapi-r2
+      match:
+        name: "lan*"
+      dhcp4: yes
+      dhcp6: yes
+      ipv6-privacy: yes # Enabled by default on most current systems, but networkd currently doesn't enable IPv6 privacy by default, see https://man.archlinux.org/man/systemd.network.5
+    all-wan-interfaces: # interfaces named 'wan'/'wanX' (DSA switch labels or udev renames), e.g. nanopi-r1, bananapi-r2
+      match:
+        name: "wan*"
+      dhcp4: yes
+      dhcp6: yes
+      ipv6-privacy: yes # Enabled by default on most current systems, but networkd currently doesn't enable IPv6 privacy by default, see https://man.archlinux.org/man/systemd.network.5

@@ -2,6 +2,8 @@
 /*
  * Copyright (c) 2024 JetHome
  * Author: Viacheslav Bocharov <adeep@lexina.in>
+ *
+ * JetHub D2 rev 1.3
  */
 
 /dts-v1/;
@@ -11,6 +13,8 @@
 #include <dt-bindings/gpio/meson-g12a-gpio.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/sound/meson-g12a-tohdmitx.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/gpio/gpio.h>
 
 
 / {
@@ -230,7 +234,7 @@
 		led-green {
 			color = <LED_COLOR_ID_GREEN>;
 			function = LED_FUNCTION_STATUS;
-			gpios = <&gpio_ao GPIOAO_11 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio_ao GPIOAO_11 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
 			panic-indicator;
 		};
@@ -238,7 +242,7 @@
 		led-red {
 			color = <LED_COLOR_ID_RED>;
 			function = LED_FUNCTION_POWER;
-			gpios = <&gpio GPIOH_5 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio GPIOH_5 GPIO_ACTIVE_HIGH>;
 			default-state = "off";
 		};
 
@@ -246,6 +250,60 @@
 
 	sound {
 		model = "JETHUB-D2";
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys-polled";
+		poll-interval = <100>;
+
+		button_up {
+			label = "Joystick Up";
+			gpios = <&exp24 8 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_UP>;
+			debounce-interval = <10>;
+		};
+
+		button_down {
+			label = "Joystick Down";
+			gpios = <&exp24 9 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_DOWN>;
+			debounce-interval = <10>;
+		};
+
+		button_left {
+			label = "Joystick Left";
+			gpios = <&exp24 10 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_LEFT>;
+			debounce-interval = <10>;
+		};
+
+		button_right {
+			label = "Joystick Right";
+			gpios = <&exp24 11 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_RIGHT>;
+			debounce-interval = <10>;
+		};
+
+		button_center {
+			label = "Joystick Center";
+			gpios = <&exp24 12 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_ENTER>;
+			debounce-interval = <10>;
+		};
+
+		button_home {
+			label = "Joystick Home";
+			gpios = <&exp24 13 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_HOME>;
+			debounce-interval = <10>;
+		};
+
+		button_back {
+			label = "Joystick Back";
+			gpios = <&exp24 14 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_BACK>;
+			debounce-interval = <10>;
+		};
 	};
 
 };
@@ -355,7 +413,8 @@
 		"RS485_TX", /* GPIOX_6 */
 		"RS485_RX", /* GPIOX_7 */
 		"", "", "", "", "", "", /* GPIOX_8 - GPIOX_13 */
-		"", "", "", /* GPIOX_14 - GPIOX_16 */
+		"", "",  /* GPIOX_14 - GPIOX_15 */
+		"GPIO_EXPANDER_INT",  /* GPIOX_16 */
 		"I2C_SDA_LCDBUS",  /* GPIOX_17 */
 		"I2C_SCL_LCDBUS",  /* GPIOX_18 */
 		""; /* GPIOX_19 */
@@ -384,7 +443,7 @@
 		"MCU_RESET", /* GPIOAO_4 */
 		"POWER_GOOD", /* GPIOAO_5 */
 		"TF_3V3N_1V8_EN",  /* GPIOAO_6 */
-		"GPIO_EXPANDER_INT", /* GPIOAO_7 */
+		"MCU_BOOT", /* GPIOAO_7 */
 		"MCU_UART_TX", /* GPIOAO_8 */
 		"MCU_UART_RX", /* GPIOAO_9 */
 		"BUTTON_USR", /* GPIOAO_10 */
@@ -531,7 +590,7 @@
 		interrupt-controller;
 		#interrupt-cells = <2>;
 		interrupt-parent = <&gpio_intc>;
-		interrupts = <IRQID_GPIOAO_7 IRQ_TYPE_LEVEL_LOW>;
+		interrupts = <IRQID_GPIOX_16 IRQ_TYPE_LEVEL_LOW>;
 
 		gpio-line-names =
 			"RELAY_1", "RELAY_2",
@@ -625,6 +684,28 @@
 		reg = <0x49>;
 	};
 
+	ssd1306: oled@3c {
+		compatible = "solomon,ssd1306";
+		reg = <0x3c>;
+		solomon,com-invdir;
+		solomon,page-offset = <0x00>;
+		solomon,dclk-div = <1>;
+		solomon,dclk-frq = <8>;
+		solomon,prechargep1 = <2>;
+		solomon,prechargep2 = <8>;
+	};
+
+	exp24: gpio@24 {
+		compatible = "nxp,pca9535";
+		reg = <0x24>;
+		gpio-controller;
+		#gpio-cells = <2>;
+
+		gpio-line-names =
+			"", "", "", "", "", "", "", "",
+			"JOY_UP", "JOY_DOWN", "JOY_LEFT", "JOY_RIGHT",
+			"JOY_CENTER", "JOY_HOME", "JOY_BACK", "";
+	};
 };
 
 &efuse {

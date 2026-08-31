@@ -1,7 +1,9 @@
 # Rockchip RK3399 hexa core 4GB LPDDR4 SoC eMMC GBE USB3
 BOARD_NAME="Station P1"
+BOARD_VENDOR="firefly"
 BOARDFAMILY="rockchip64"
 BOARD_MAINTAINER=""
+INTRODUCED="2018"
 BOOTCONFIG="roc-pc-plus-rk3399_defconfig"
 KERNEL_TARGET="current,edge"
 KERNEL_TEST_TARGET="current"
@@ -13,12 +15,3 @@ BOOT_SCENARIO="tpl-spl-blob"
 SRC_EXTLINUX="yes"
 SRC_CMDLINE="console=ttyS2,1500000 console=tty0"
 ASOUND_STATE="asound.state.station-p1"
-
-function post_family_tweaks__station_p1() {
-	display_alert "$BOARD" "Installing board tweaks" "info"
-
-	cp -R $SRC/packages/blobs/rtl8723bt_fw/* $SDCARD/lib/firmware/rtl_bt/
-	cp -R $SRC/packages/blobs/station/firmware/* $SDCARD/lib/firmware/
-
-	return 0
-}

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0
 #
-# Copyright (c) 2013-2023 Igor Pecovnik, igor@armbian.com
+# Copyright (c) 2013-2026 Igor Pecovnik, igor@armbian.com
 #
 # This file is a part of the Armbian Build Framework
 # https://github.com/armbian/build/
@@ -14,7 +14,7 @@
 function prepare_host_basic() {
 
 	# command:package1 package2 ...
-	# list of commands that are neeeded:packages where this command is
+	# list of commands that are needed:packages where this command is
 	local check_pack install_pack
 	local checklist=(
 		"dialog:dialog"

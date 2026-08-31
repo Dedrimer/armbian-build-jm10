@@ -1,7 +1,9 @@
-# Rockchip RK3566 quad core
+# Rockchip RK3566 quad core 4/8GB RAM SoC WIFI/BT eMMC USB2 USB3 NVMe PCIe GbE HDMI SPI
 BOARD_NAME="Luckfox Core3566"
+BOARD_VENDOR="luckfox"
 BOARDFAMILY="rk35xx"
 BOARD_MAINTAINER=""
+INTRODUCED="2023"
 BOOTCONFIG="luckfox-core3566-rk3566_defconfig"
 KERNEL_TARGET="vendor"
 KERNEL_TEST_TARGET="vendor"
@@ -11,6 +13,9 @@ BOOT_FDT_FILE="rockchip/rk3566-luckfox-core3566.dtb"
 IMAGE_PARTITION_TABLE="gpt"
 BOOT_SCENARIO="spl-blobs"
 BOOTFS_TYPE="fat" # Only for vendor/legacy
+BOOT_SUPPORT_SPI="yes"
+BOOT_SPI_RKSPI_LOADER="yes"
+MODULES_BLACKLIST_LEGACY="bcmdhd"
 
 # Override family config for this board; let's avoid conditionals in family config.
 function post_family_config__luckfox-core3566_use_vendor_uboot() {

@@ -1,9 +1,11 @@
 # Allwinner H3 quad core 1GB/2GB RAM WiFi eMMC
 BOARD_NAME="Orange Pi+"
+BOARD_VENDOR="xunlong"
 BOARDFAMILY="sun8i"
 BOARD_MAINTAINER=""
+INTRODUCED="2015"
 BOOTCONFIG="orangepi_plus_defconfig"
-KERNEL_TARGET="legacy,current,edge"
+KERNEL_TARGET="current,edge,legacy"
 KERNEL_TEST_TARGET="current"
 
 function post_config_uboot_target__extra_configs_for_orangepi_plus() {

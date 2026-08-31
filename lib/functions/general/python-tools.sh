@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0
 #
-# Copyright (c) 2013-2023 Igor Pecovnik, igor@armbian.com
+# Copyright (c) 2013-2026 Igor Pecovnik, igor@armbian.com
 #
 # This file is a part of the Armbian Build Framework
 # https://github.com/armbian/build/
@@ -42,21 +42,10 @@ function prepare_python_and_pip() {
 
 	declare python3_version_majorminor python3_version_string
 	# Extract the major and minor version numbers (e.g., "3.12" instead of "3.12.2")
-	python3_version_majorminor=$(echo "${python3_version_full}" | awk '{print $2}' | cut -d. -f1,2)
+	declare _py_ver_triplet="${python3_version_full#* }" # strip "Python " prefix → "3.12.2"
+	python3_version_majorminor="${_py_ver_triplet%.*}"   # strip ".PATCH" suffix → "3.12"
 	# Construct the version string (e.g., "python3.12")
 	python3_version_string="python$python3_version_majorminor"
-
-	# Check actual pip3 version
-	#   Note: we don't use "/usr/bin/pip3" at all, since it's commonly missing. instead "python -m pip"
-	#   The hostdep package python3-pip is still required, and other crazy might impact this.
-	#   We might need to install our own pip if it gets bad enough.
-	declare pip3_version
-	pip3_version="$("${python3_binary_path}" -m pip --version)"
-
-	# get the pip3 version number only (eg, "21.2.4" from "pip 21.2.4 from /usr/lib/python3/dist-packages/pip (python 3.9)")
-	declare pip3_version_number
-	pip3_version_number="$(echo "${pip3_version}" | cut -d' ' -f2)" # @TODO: brittle. how to do this better?
-	display_alert "pip3 version" "${pip3_version_number}: '${pip3_version}'" "info"
 
 	# Hash the contents of the dependencies array + the Python version + the release
 	declare python3_pip_dependencies_path
@@ -66,8 +55,15 @@ function prepare_python_and_pip() {
 	# Check for the existence of requirements.txt, fail if not found
 	[[ ! -f "${python3_pip_dependencies_path}" ]] && exit_with_error "Python Pip requirements.txt file not found at path: ${python3_pip_dependencies_path}"
 
+	# We will install our own pip; we don't want to rely on the host's pip version, as that implies old setuptools etc.
+	# Parse the pip version from the requirements.txt file; use grep to find the line starting with "pip == "
+	# Example line: "pip == 25.0.1          # pip is the package installer for Python" so get rid of comments
+	declare pip3_version_number="undetermined"
+	pip3_version_number=$(grep -E "^pip[[:space:]]*==" "${python3_pip_dependencies_path}" | cut -d'=' -f3 | cut -d'#' -f 1 | tr -d '[:space:]')
+	display_alert "pip3 version" "${pip3_version_number}" "info"
+
 	# Calculate the hash for the Pip requirements
-	python3_pip_dependencies_hash="$(echo "${HOSTRELEASE}" "${python3_version}" "${pip3_version}" "$(cat "${python3_pip_dependencies_path}")" | sha256sum | cut -d' ' -f1)"
+	python3_pip_dependencies_hash="$(echo "${HOSTRELEASE}" "${python3_version}" "${pip3_version_number}" "$(< "${python3_pip_dependencies_path}")" | sha256sum | cut -d' ' -f1)"
 
 	declare non_cache_dir="/armbian-pip"
 	declare python_pip_cache="${SRC}/cache/pip"
@@ -83,16 +79,8 @@ function prepare_python_and_pip() {
 		fi
 	fi
 
-	declare -a pip3_extra_args=("--no-warn-script-location" "--user")
-	# if pip 23+, add "--break-system-packages" to pip3 invocations.
-	# See See PEP 668 -- System-wide package management with pip
-	# but the fact is that we're _not_ managing system-wide, instead --user
-	if linux-version compare "${pip3_version_number}" ge "23.0"; then
-		pip3_extra_args+=("--break-system-packages")
-	fi
-	if linux-version compare "${pip3_version_number}" ge "22.1"; then
-		pip3_extra_args+=("--root-user-action=ignore")
-	fi
+	# we run as root, but with --user; --break-system-packages is required due to PEP 668 (no system packages are installed here anyway)
+	declare -a pip3_extra_args=("--no-warn-script-location" "--user" "--root-user-action=ignore" "--break-system-packages")
 
 	declare python_hash_base="${python_pip_cache}/pip_pkg_hash"
 	declare python_hash_file="${python_hash_base}_${python3_pip_dependencies_hash}"
@@ -110,15 +98,17 @@ function prepare_python_and_pip() {
 		[REQUIREMENTS_PATH]="${python3_pip_dependencies_path}"
 		[VERSION]="${python3_version}"
 		[VERSION_STRING]="${python3_version_string}"
-		[PIP_VERSION]="${pip3_version}"
+		[PIP_VERSION]="${pip3_version_number}"
+		[GET_PIP_BIN]="${PYTHON3_INFO[USERBASE]}/bin/get-pip-${pip3_version_number}.py"
 	)
 
 	# declare a readonly global array for ENV vars to invoke python3 with
 	declare -r -g -a PYTHON3_VARS=(
+		"PYTHONPATH=/does/not/exist/armbian/uses/user/packages/only"
 		"PYTHONUSERBASE=${PYTHON3_INFO[USERBASE]}"
 		"PYTHONUNBUFFERED=yes"
 		"PYTHONPYCACHEPREFIX=${PYTHON3_INFO[PYCACHEPREFIX]}"
-		"PATH=\"${toolchain}:${PYTHON3_INFO[USERBASE]}/bin:${PATH}\"" # add toolchain to PATH to make building wheels work
+		"PATH='${PYTHON3_INFO[USERBASE]}/bin:${PATH}'"
 	)
 
 	# If the hash file exists, we're done.
@@ -129,7 +119,30 @@ function prepare_python_and_pip() {
 		# remove the old hashes matching base, don't leave junk behind
 		run_host_command_logged rm -fv "${python_hash_base}*"
 
-		run_host_command_logged env -i "${PYTHON3_VARS[@]@Q}" "${PYTHON3_INFO[BIN]}" -m pip install "${pip3_extra_args[@]}" -r "${python3_pip_dependencies_path}"
+		# If get-pip.py is not present, download it, using curl.
+		if [[ ! -f "${PYTHON3_INFO[GET_PIP_BIN]}" ]]; then
+			display_alert "Downloading get-pip.py" "from https://bootstrap.pypa.io/get-pip.py" "info"
+			run_host_command_logged curl -sSL -o "${PYTHON3_INFO[GET_PIP_BIN]}" "https://bootstrap.pypa.io/get-pip.py"
+		fi
+
+		# Install pip, using get-pip.py; that bootstraps pip using an embedded, temporary, pip contained in get-pip.py
+		display_alert "Installing pip using get-pip.py" "${pip3_version_number}" "info"
+		declare -a python_proxy_env=(
+			"http_proxy=${http_proxy:-${HTTP_PROXY:-}}"
+			"https_proxy=${https_proxy:-${HTTPS_PROXY:-}}"
+			"HTTP_PROXY=${HTTP_PROXY:-${http_proxy:-}}"
+			"HTTPS_PROXY=${HTTPS_PROXY:-${https_proxy:-}}"
+			"ftp_proxy=${ftp_proxy:-${FTP_PROXY:-}}"
+			"FTP_PROXY=${FTP_PROXY:-${ftp_proxy:-}}"
+			"no_proxy=${no_proxy:-${NO_PROXY:-}}"
+			"NO_PROXY=${NO_PROXY:-${no_proxy:-}}"
+			"APT_PROXY_ADDR=${APT_PROXY_ADDR:-}"
+		)
+		run_host_command_logged env -i "${python_proxy_env[@]@Q}" "${PYTHON3_VARS[@]@Q}" "${PYTHON3_INFO[BIN]}" "${PYTHON3_INFO[GET_PIP_BIN]}" "${pip3_extra_args[@]}" "pip==${pip3_version_number}"
+
+		# Install the dependencies
+		display_alert "Installing Python dependencies" "from ${python3_pip_dependencies_path}" "info"
+		run_host_command_logged env -i "${python_proxy_env[@]@Q}" "${PYTHON3_VARS[@]@Q}" "${PYTHON3_INFO[BIN]}" -m pip install "${pip3_extra_args[@]}" -r "${python3_pip_dependencies_path}"
 
 		# Create the hash file
 		run_host_command_logged touch "${python_hash_file}"
@@ -148,7 +161,7 @@ function host_deps_add_extra_python() {
 	# Determine what version of python3;  focal-like OS's have Python 3.8, but we need 3.9.
 	if [[ "focal ulyana ulyssa uma una" == *"${host_release}"* ]]; then
 		display_alert "Using Python 3.9 for" "hostdeps: '${host_release}' has outdated python3, using python3.9" "warn"
-		host_dependencies+=("python3.9-dev")
+		host_dependencies+=("python::python3.9-dev")
 	else
 		display_alert "Using Python3 for" "hostdeps: '${host_release}' has python3 >= 3.9" "debug"
 	fi

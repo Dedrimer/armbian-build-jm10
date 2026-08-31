@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0
 #
-# Copyright (c) 2013-2023 Igor Pecovnik, igor@armbian.com
+# Copyright (c) 2013-2026 Igor Pecovnik, igor@armbian.com
 #
 # This file is a part of the Armbian Build Framework
 # https://github.com/armbian/build/
@@ -119,7 +119,6 @@ function create_image_from_sdcard_rootfs() {
 	wait_for_disk_sync "before umount MOUNT"
 
 	umount_chroot_recursive "${MOUNT}" "MOUNT"
-	[[ $CRYPTROOT_ENABLE == yes ]] && cryptsetup luksClose "$CRYPTROOT_MAPPER"
 
 	call_extension_method "post_umount_final_image" "config_post_umount_final_image" <<- 'POST_UMOUNT_FINAL_IMAGE'
 		*allow config to hack into the image after the unmount*

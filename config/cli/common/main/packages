@@ -1,6 +1,7 @@
 alsa-utils
 bash-completion
 bc
+btrfs-progs
 console-setup
 cron
 curl
@@ -9,6 +10,7 @@ dialog
 debconf-utils
 debsums
 dosfstools
+e2fsprogs
 fake-hwclock
 fdisk
 figlet
@@ -28,6 +30,7 @@ mmc-utils
 ncurses-term
 nano
 openssh-server
+pahole
 parted
 psmisc
 rsync
@@ -40,4 +43,5 @@ u-boot-tools
 usbutils
 wget
 wireguard-tools
+wireless-regdb
 wpasupplicant

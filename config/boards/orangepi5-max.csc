@@ -1,11 +1,13 @@
 # Rockchip RK3588 octa core 4/8/16GB RAM SoC SPI NVMe 2x USB2 2x USB3 2x HDMI
 BOARD_NAME="Orange Pi 5 Max"
+BOARD_VENDOR="xunlong"
 BOARDFAMILY="rockchip-rk3588"
 BOARD_MAINTAINER=""
+INTRODUCED="2024"
 BOOTCONFIG="orangepi-5-max-rk3588_defconfig" # vendor name, not standard, see hook below, set BOOT_SOC below to compensate
 BOOT_SOC="rk3588"
-KERNEL_TARGET="vendor"
-KERNEL_TEST_TARGET="vendor"
+KERNEL_TARGET="vendor,current,edge"
+KERNEL_TEST_TARGET="vendor,edge"
 FULL_DESKTOP="yes"
 BOOT_LOGO="desktop"
 BOOT_FDT_FILE="rockchip/rk3588-orangepi-5-max.dtb"
@@ -15,6 +17,29 @@ BOOT_SPI_RKSPI_LOADER="yes"
 IMAGE_PARTITION_TABLE="gpt"
 enable_extension "bcmdhd"
 BCMDHD_TYPE="sdio"
+
+# Mainline U-Boot for edge kernel
+function post_family_config_branch_edge__orangepi5max_use_mainline_uboot() {
+	display_alert "$BOARD" "Mainline U-Boot overrides for $BOARD - $BRANCH" "info"
+	unset BOOT_FDT_FILE
+	declare -g BOOTCONFIG="orangepi-5-max-rk3588_defconfig"
+	declare -g BOOTDELAY=1
+	declare -g BOOTSOURCE="https://github.com/u-boot/u-boot.git"
+	declare -g BOOTBRANCH="tag:v2025.04"
+	declare -g BOOTPATCHDIR="v2025.04"
+	declare -g BOOTDIR="u-boot-${BOARD}"
+	declare -g UBOOT_TARGET_MAP="BL31=${RKBIN_DIR}/${BL31_BLOB} ROCKCHIP_TPL=${RKBIN_DIR}/${DDR_BLOB};;u-boot-rockchip.bin u-boot-rockchip-spi.bin"
+	unset uboot_custom_postprocess write_uboot_platform write_uboot_platform_mtd # disable stuff from rockchip64_common; we're using binman here which does all the work already
+
+	# Just use the binman-provided u-boot-rockchip.bin, which is ready-to-go
+	function write_uboot_platform() {
+		dd "if=$1/u-boot-rockchip.bin" "of=$2" bs=32k seek=1 conv=notrunc status=none
+	}
+
+	function write_uboot_platform_mtd() {
+		flashcp -v -p "$1/u-boot-rockchip-spi.bin" /dev/mtd0
+	}
+}
 
 function post_family_tweaks__orangepi5max_naming_audios() {
 	display_alert "$BOARD" "Renaming orangepi5max audios" "info"
@@ -42,7 +67,23 @@ function post_family_tweaks_bsp__orangepi5max_bluetooth() {
 }
 
 function post_family_tweaks__orangepi5max_enable_bluetooth_service() {
+	# On the edge kernel, the mainline hci_bcm SerDev driver handles BT natively
+	# via the DT bluetooth node. The user-space patchram service would conflict
+	# with SerDev (both try to claim /dev/ttyS7), so we skip enabling it.
+	[[ "$BRANCH" == "edge" ]] && return 0
+
 	display_alert "$BOARD" "Enabling ap6611s-bluetooth.service" "info"
 	chroot_sdcard systemctl enable ap6611s-bluetooth.service
+	return 0
+}
+
+# On the edge kernel, hci_bcm constructs the firmware filename from the board
+# compatible string (BCM.<board>.hcd), not from the chip name. Create a symlink
+# so the driver finds the SYN43711A0 patchram firmware.
+function post_family_tweaks__orangepi5max_bt_firmware_symlink() {
+	[[ "$BRANCH" != "edge" ]] && return 0
+	display_alert "$BOARD" "Creating BT firmware symlink for edge kernel" "info"
+	mkdir -p "$SDCARD/lib/firmware/brcm"
+	ln -sf SYN43711A0.hcd "$SDCARD/lib/firmware/brcm/BCM.xunlong,orangepi-5-max.hcd"
 	return 0
 }

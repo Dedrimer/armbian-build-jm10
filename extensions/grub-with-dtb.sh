@@ -1,3 +1,5 @@
+# @description A superset of the `grub` extension that boots via DeviceTree instead of ACPI, for EFI-only ARM64 machines like the ThinkPad X13s or Phytium D2000. Requires `BOOT_FDT_FILE`/`GRUB_FDT_FILE`, and installs a kernel hook plus a custom `09_linux_with_dtb.sh` GRUB script that deploys the DTB to the boot partition.
+
 #
 # SPDX-License-Identifier: GPL-2.0
 # Copyright (c) 2023 Ricardo Pardini <ricardo@pardini.net>
@@ -15,8 +17,8 @@ enable_extension "grub"
 
 # Ensure config is sufficient for operation
 function extension_prepare_config__prepare_grub_with_dtb() {
-	# Make sure BOOT_FDT_FILE is set and not empty
-	[[ -n "${BOOT_FDT_FILE}" ]] || exit_with_error "BOOT_FDT_FILE is not set, required for grub-with-dtb"
+	# Make sure BOOT_FDT_FILE, or GRUB_FDT_FILE is set and not empty
+	[[ -n "${BOOT_FDT_FILE:-"${GRUB_FDT_FILE}"}" ]] || exit_with_error "BOOT_FDT_FILE/GRUB_FDT_FILE is not set, required for grub-with-dtb"
 
 	display_alert "Extension: ${EXTENSION}: Initializing config" "${BOARD}" "info"
 }
@@ -30,7 +32,7 @@ function post_family_tweaks_bsp__add_grub_with_dtb_config_file() {
 	display_alert "Extension: ${EXTENSION}: Adding grub-with-dtb config file" "${BOARD}" "info"
 	# maybe add this to conffiles?
 	cat <<- EOD > "${destination}"/etc/armbian-grub-with-dtb
-		BOOT_FDT_FILE="${BOOT_FDT_FILE}"
+		BOOT_FDT_FILE="${BOOT_FDT_FILE:-"${GRUB_FDT_FILE}"}"
 	EOD
 }
 

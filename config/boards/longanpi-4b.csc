@@ -1,7 +1,9 @@
 # Allwinner Cortex-A55 octa core 2/4GB RAM SoC USB3 PCIE USB-C 2x GbE
 BOARD_NAME="LonganPi 4B"
+BOARD_VENDOR="mangopi"
 BOARDFAMILY="sun55iw3-syterkit"
 BOARD_MAINTAINER="chainsx"
+INTRODUCED="2025"
 KERNEL_TARGET="legacy"
 BOOT_FDT_FILE="allwinner/sun55i-t527-longanpi-4b-pcie.dtb"
 SRC_EXTLINUX="yes"
@@ -13,8 +15,8 @@ declare -g SYTERKIT_BOARD_ID="longanpi-4b" # This _only_ used for syterkit-allwi
 
 function post_family_tweaks__longanpi-4b() {
 	display_alert "Applying boot blobs"
-	cp -v "$SRC/packages/blobs/sunxi/sun50iw3/bl31.bin" "$SDCARD/boot/bl31.bin"
-	cp -v "$SRC/packages/blobs/sunxi/sun50iw3/scp.bin" "$SDCARD/boot/scp.bin"
+	cp -v "$SRC/packages/blobs/sunxi/sun55iw3/bl31.bin" "$SDCARD/boot/bl31.bin"
+	cp -v "$SRC/packages/blobs/sunxi/sun55iw3/scp.bin" "$SDCARD/boot/scp.bin"
 
 	display_alert "Applying wifi firmware"
 	pushd "$SDCARD/lib/firmware"
