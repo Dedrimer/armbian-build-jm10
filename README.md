@@ -115,13 +115,23 @@ sudo netplan apply
 
 两个目录都包含 JM10 DTS 补丁以及针对 DSA、RGMII、Type-C/USB 的修正。补丁会把 `rk3588-yjh-jm10.dts` 注册到对应内核的设备树 Makefile。
 
-legacy U-Boot 的额外配置位于：
+### U-Boot 固定版本与启动修复
+
+新基线的 `next-dev-v2024.10` U-Boot 在 JM10 上无法启动，而使用旧镜像中的 U-Boot 可以正常启动。JM10 当前固定使用 Radxa U-Boot 提交：
 
 ```text
-patch/u-boot/legacy/u-boot-radxa-rk35xx/board_yjh-jm10-3588/
+22849bf1cf13c2f0a6f2741a51d4802793d2aecc
 ```
 
-该补丁关闭 `CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION`，不要随意删除，否则可能影响 JM10 的 legacy 启动流程。
+板卡 hook 会在构建配置的后期覆盖 RK3588 家族默认值，因此上游更新家族 U-Boot 分支不会改变 JM10 的 U-Boot。JM10 还使用独立的冻结补丁目录，只包含旧可启动镜像构建时应用的两个补丁，不会继承公共目录后续新增的 U-Boot 补丁：
+
+```text
+patch/u-boot/legacy/u-boot-radxa-rk35xx-yjh-jm10-3588/
+```
+
+其中一个补丁关闭 `CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION`，另一个补丁增加 RK3566 的 Rockchip 镜像名称支持。不要把 `BOOTBRANCH` 改回家族默认值，也不要将 `BOOTPATCHDIR` 改为 `legacy/u-boot-radxa-rk35xx` 或追加 `v2024.10` 目录，否则可能再次生成无法启动的 U-Boot。
+
+当前固定 U-Boot 的构建配置位于 [`config/boards/yjh-jm10-3588.csc`](config/boards/yjh-jm10-3588.csc)。
 
 ### 蓝牙和无线
 
@@ -161,7 +171,7 @@ sudo apt-mark unhold \
 | `config/boards/yjh-jm10-3588.csc` | 板卡主配置、构建分支选择、蓝牙、DSA 和升级锁定逻辑 |
 | `userpatches/kernel/rockchip-5.10-yjh-jm10/` | 5.10 legacy 内核补丁 |
 | `userpatches/kernel/rockchip-6.1-yjh-jm10/` | 6.1 vendor 内核补丁 |
-| `patch/u-boot/legacy/u-boot-radxa-rk35xx/board_yjh-jm10-3588/` | legacy U-Boot 补丁 |
+| `patch/u-boot/legacy/u-boot-radxa-rk35xx-yjh-jm10-3588/` | JM10 冻结 U-Boot 补丁集 |
 | `packages/bsp/rk3399/` | 复用的蓝牙工具和 systemd 服务模板 |
 | `userpatches/customize-image.sh` | 通用镜像定制脚本，JM10 默认流程不依赖其中的旧版 OMV 函数 |
 
@@ -176,5 +186,7 @@ JM10 功能主要由以下本地提交形成：
 - `da15deb33`：新增 JM10 板卡配置、DTS 和 legacy U-Boot 补丁。
 - `c1fea00f8`：增加 MV88E6390X DSA、RGMII、Type-C/USB 相关 DTS 修正。
 - `fdd6781a8`：增加内核包 hold、`rfkill`、DSA Netplan 桥接文件和 `-dsa` 镜像后缀。
+- `49f26a39d`：将 JM10 U-Boot 固定到已验证可启动的提交 `22849bf1cf13c2f0a6f2741a51d4802793d2aecc`。
+- `da10659b9`：冻结 JM10 的 U-Boot 补丁集，隔离后续公共 U-Boot 更新。
 
 上游 Armbian 构建框架的更新会继续合并到本仓库，但应重点检查 `config/boards/yjh-jm10-3588.csc` 中的 hook 名称、内核补丁接口和包名是否仍与上游一致。
