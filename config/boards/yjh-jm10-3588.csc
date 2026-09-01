@@ -20,6 +20,7 @@ function post_family_config__nas-lite_kernel() {
 	if [[ ${BRANCH} = "legacy" ]] ; then
 		KERNELPATCHDIR="rockchip-5.10-yjh-jm10"
 	else
+		KERNELBRANCH="branch:rk-6.1-rkr3"
 		KERNELPATCHDIR="rockchip-6.1-yjh-jm10"
 	fi	
 }
