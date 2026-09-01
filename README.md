@@ -10,7 +10,7 @@
 - 设备树：`rockchip/rk3588-yjh-jm10.dtb`
 - U-Boot 配置：`rk3588_defconfig`
 - 默认不构建桌面环境：`FULL_DESKTOP="no"`
-- 默认启用 `mesa-vpu` 扩展
+- Mesa/VPU 用户空间由上游 `armbian-config` 机制负责，不再启用已删除的 `mesa-vpu` 扩展
 
 JM10 的板卡入口是 [`config/boards/yjh-jm10-3588.csc`](config/boards/yjh-jm10-3588.csc)。构建时必须使用准确的板卡名称 `yjh-jm10-3588`。
 

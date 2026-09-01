@@ -12,7 +12,6 @@ FULL_DESKTOP="no"
 #./compile.sh BOARD=yjh-jm10-3588 BRANCH=vendor BUILD_DESKTOP=no BUILD_MINIMAL=yes KERNEL_CONFIGURE=no RELEASE=noble JM10_DSA_88E6390=yes
 JM10_DSA_88E6390="no"
 IMAGE_PARTITION_TABLE="gpt"
-ENABLE_EXTENSIONS="mesa-vpu"
 # SRC_EXTLINUX="yes"
 # SRC_CMDLINE="rootwait earlycon=uart8250,mmio32,0xfeb50000 console=ttyFIQ0 irqchip.gicv3_pseudo_nmi=0 rootfstype=ext4"
 
