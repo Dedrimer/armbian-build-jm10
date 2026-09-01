@@ -19,7 +19,25 @@ Signed-off-by: Armbian JM10 support <noreply@example.invalid>
 
 --- a/drivers/net/dsa/mv88e6xxx/chip.c
 +++ b/drivers/net/dsa/mv88e6xxx/chip.c
-@@ -3315,0 +3316,7 @@
+@@ -3314,9 +3314,16 @@ static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
+-{
+-	struct device_node *phy_handle = NULL;
+-	struct dsa_switch *ds = chip->ds;
+-	phy_interface_t mode;
+-	struct dsa_port *dp;
+-	int tx_amp, speed;
+-	int err;
+-	u16 reg;
+-
++{
++	struct device_node *phy_handle = NULL;
++	struct dsa_switch *ds = chip->ds;
++	phy_interface_t mode;
++	struct dsa_port *dp;
++	int tx_amp, speed;
++	int err;
++	u16 reg;
++
 +	/* MV88E6190/6390 ports 1-8 have two configurable PHY LEDs. */
 +	if (chip->info->family == MV88E6XXX_FAMILY_6390) {
 +		err = mv88e6390_port_setup_leds(chip, port);
@@ -29,7 +47,7 @@ Signed-off-by: Armbian JM10 support <noreply@example.invalid>
 +
 --- a/drivers/net/dsa/mv88e6xxx/port.c
 +++ b/drivers/net/dsa/mv88e6xxx/port.c
-@@ -135,0 +136,12 @@
+@@ -135,0 +136,12 @@ int mv88e6320_port_set_rgmii_delay(struct mv88e6xxx_chip *chip, int port,
 +int mv88e6390_port_setup_leds(struct mv88e6xxx_chip *chip, int port)
 +{
 +	/* Ports 1-8 are the integrated copper PHYs on 6190/6390. */
@@ -44,14 +62,14 @@ Signed-off-by: Armbian JM10 support <noreply@example.invalid>
 +
 --- a/drivers/net/dsa/mv88e6xxx/port.h
 +++ b/drivers/net/dsa/mv88e6xxx/port.h
-@@ -293,0 +294,6 @@
+@@ -293,0 +294,6 @@ #define MV88E6XXX_PORT_OUT_FILTERED	0x13
 +/* Offset 0x16: LED Control (MV88E6190/6390 and related devices) */
 +#define MV88E6XXX_PORT_LED_CONTROL			0x16
 +#define MV88E6XXX_PORT_LED_CONTROL_UPDATE		0x8000
 +/* Register index 0 selects the LED0/LED1 selector pair. */
 +#define MV88E6390_PORT_LED_MODE_LINK_ACT		0x0022
 +
-@@ -340,0 +347 @@
+@@ -340,0 +341,1 @@ int mv88e6390_port_set_rgmii_delay(struct mv88e6xxx_chip *chip, int port,
 +int mv88e6390_port_setup_leds(struct mv88e6xxx_chip *chip, int port);
 --
 2.39.5
