@@ -18,11 +18,11 @@ IMAGE_PARTITION_TABLE="gpt"
 function post_family_config__yjh_jm10_3588_pin_uboot() {
 	display_alert "$BOARD" "Pinning verified U-Boot commit for $BOARD" "info"
 
-	# The JM10 boots with this Radxa U-Boot revision. Keep the 2024.03 patch
-	# set as well; the 2024.10-only patch directory is not compatible here.
+	# The JM10 boots with this Radxa U-Boot revision. Use only the frozen
+	# 2024.03 patch set; do not inherit newer family U-Boot patches.
 	declare -g BOOTSOURCE="https://github.com/radxa/u-boot.git"
 	declare -g BOOTBRANCH="commit:22849bf1cf13c2f0a6f2741a51d4802793d2aecc"
-	declare -g BOOTPATCHDIR="legacy/u-boot-radxa-rk35xx"
+	declare -g BOOTPATCHDIR="legacy/u-boot-radxa-rk35xx-yjh-jm10-3588"
 }
 
 function post_family_config__nas-lite_kernel() {
