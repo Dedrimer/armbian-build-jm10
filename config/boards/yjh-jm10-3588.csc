@@ -10,7 +10,9 @@ BOOT_LOGO="desktop"
 FULL_DESKTOP="no"
 #硬改dsa交换机 设置 JM10_DSA_88E6390="yes" 内核版本这里使用vendor 6.1x, legacy 5.10内核未测试
 #./compile.sh BOARD=yjh-jm10-3588 BRANCH=vendor BUILD_DESKTOP=no BUILD_MINIMAL=yes KERNEL_CONFIGURE=no RELEASE=noble JM10_DSA_88E6390=yes
-JM10_DSA_88E6390="no"
+# Keep the board default, but let a command-line parameter override it. The
+# Armbian CLI parameters are applied before this board file is sourced.
+declare -g JM10_DSA_88E6390="${JM10_DSA_88E6390:-no}"
 IMAGE_PARTITION_TABLE="gpt"
 # SRC_EXTLINUX="yes"
 # SRC_CMDLINE="rootwait earlycon=uart8250,mmio32,0xfeb50000 console=ttyFIQ0 irqchip.gicv3_pseudo_nmi=0 rootfstype=ext4"
@@ -26,13 +28,15 @@ function post_family_config__yjh_jm10_3588_pin_uboot() {
 }
 
 function post_family_config__nas-lite_kernel() {
-	display_alert "$BOARD" "mainline BOOTPATCHDIR" "info"	
-	if [[ ${BRANCH} = "legacy" ]] ; then
-		KERNELPATCHDIR="rockchip-5.10-yjh-jm10"
-	else
-		KERNELBRANCH="branch:rk-6.1-rkr3"
-		KERNELPATCHDIR="rockchip-6.1-yjh-jm10"
-	fi	
+	display_alert "$BOARD" "JM10 kernel patch directory" "info"
+	case ${BRANCH} in
+		legacy)
+			KERNELPATCHDIR="rockchip-5.10-yjh-jm10"
+			;;
+		vendor)
+			KERNELPATCHDIR="rockchip-6.1-yjh-jm10"
+			;;
+	esac
 }
 
 function post_family_tweaks_bsp__JM10-3588() {

@@ -98,11 +98,38 @@ ip link show master br0
 cat /etc/netplan/10-dsa-MV88E6XXX-br0.yaml
 ```
 
+在 DSA 模式下，`eth1` 至 `eth8` 显示为 `ethN@end0` 是正常的：它们是挂在
+GMAC 主接口 `end0` 下的 DSA 从属端口。启用 `JM10_DSA_88E6390=yes` 后，
+上述 Netplan 文件应存在，并且 `ip link show br0` 应能看到桥；如果只有
+`eth1` 至 `eth8` 而没有 `br0`，先确认构建命令确实传入了该参数，并检查：
+
+```bash
+test -f /etc/netplan/10-dsa-MV88E6XXX-br0.yaml
+sudo netplan generate
+```
+
 生成的配置使用 DHCP。如果需要静态地址，应在目标板上修改该 Netplan 文件中的 `br0` 配置，然后执行：
 
 ```bash
 sudo netplan apply
 ```
+
+### 交换芯片网口 LED
+
+JM10 的八个 RJ45 口由 Marvell MV88E6190/6390（Linux 中归入
+`MV88E6390` family）内部 PHY 管理，LED 不是由 RK3588 的 GPIO 或 Netplan
+驱动。Marvell 数据手册（88E6390/88E6190/88E6290，2018-01-23，2.4 节、
+表 17/18）规定端口 1--8 的 LED 选择寄存器是每端口寄存器 `0x16` 的
+Index 0；选择器 `0x2` 表示 LED0 为千兆 Link/Act、LED1 为 10/100
+Link/Act。
+
+原 6.1 `mv88e6xxx` 驱动没有初始化 6390 的 `0x16`，所以部分 JM10 板卡
+会保留硬件 strap 的常亮选择。vendor 6.1 构建会额外应用
+`kernel-rk35xx-vendor-003-mv88e6390-led.patch`，在交换机初始化时对端口
+1--8 写入 `0x8022`（bit 15 为 update，低字节 `0x22` 为两个 LED 的
+`0x2` 选择器）。这与端口转发、桥接配置无关；若升级后 LED 仍全亮，应
+先确认运行的是带该补丁的 `vendor` 内核，再从交换机 MDIO 读取各端口
+寄存器 `0x16`，预期选择器为 `0x2/0x2`。
 
 ## JM10 专用功能
 
@@ -112,6 +139,10 @@ sudo netplan apply
 
 - `legacy`：`userpatches/kernel/rockchip-5.10-yjh-jm10/`
 - `vendor`：`userpatches/kernel/rockchip-6.1-yjh-jm10/`
+
+JM10 不再在板卡 hook 中固定 vendor 内核提交；vendor 内核分支沿用
+`config/sources/families/rockchip-rk3588.conf` 当前定义的最新版
+`rk-6.1-rkr5.1`。loader 和 U-Boot 仍使用上文所述的冻结配置。
 
 两个目录都包含 JM10 DTS 补丁以及针对 DSA、RGMII、Type-C/USB 的修正。补丁会把 `rk3588-yjh-jm10.dts` 注册到对应内核的设备树 Makefile。
 

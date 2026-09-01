@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Armbian JM10 support <noreply@example.invalid>
+Date: Wed, 2 Sep 2026 05:10:00 +0800
+Subject: [PATCH] net: dsa: mv88e6xxx: initialize MV88E6390 port LEDs
+
+The MV88E6190/6390 integrated PHY ports expose two LEDs through port
+register 0x16. The 6.1 driver does not initialize this register, leaving
+the LED selector at the board/reset value. Select the documented mode 0x2
+for ports 1 through 8: LED0 is Gb link/activity and LED1 is 10/100
+link/activity.
+
+Signed-off-by: Armbian JM10 support <noreply@example.invalid>
+
+---
+ drivers/net/dsa/mv88e6xxx/chip.c |  7 +++++++
+ drivers/net/dsa/mv88e6xxx/port.c | 12 ++++++++++++
+ drivers/net/dsa/mv88e6xxx/port.h |  7 +++++++
+ 3 files changed, 26 insertions(+)
+
+--- a/drivers/net/dsa/mv88e6xxx/chip.c
++++ b/drivers/net/dsa/mv88e6xxx/chip.c
+@@ -3315,0 +3316,7 @@
++	/* MV88E6190/6390 ports 1-8 have two configurable PHY LEDs. */
++	if (chip->info->family == MV88E6XXX_FAMILY_6390) {
++		err = mv88e6390_port_setup_leds(chip, port);
++		if (err)
++			return err;
++	}
++
+--- a/drivers/net/dsa/mv88e6xxx/port.c
++++ b/drivers/net/dsa/mv88e6xxx/port.c
+@@ -135,0 +136,12 @@
++int mv88e6390_port_setup_leds(struct mv88e6xxx_chip *chip, int port)
++{
++	/* Ports 1-8 are the integrated copper PHYs on 6190/6390. */
++	if (port < 1 || port > 8)
++		return 0;
++
++	/* Index 0, selector 0x2 for both LED outputs, then latch it. */
++	return mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_LED_CONTROL,
++				    MV88E6XXX_PORT_LED_CONTROL_UPDATE |
++				    MV88E6390_PORT_LED_MODE_LINK_ACT);
++}
++
+--- a/drivers/net/dsa/mv88e6xxx/port.h
++++ b/drivers/net/dsa/mv88e6xxx/port.h
+@@ -293,0 +294,6 @@
++/* Offset 0x16: LED Control (MV88E6190/6390 and related devices) */
++#define MV88E6XXX_PORT_LED_CONTROL			0x16
++#define MV88E6XXX_PORT_LED_CONTROL_UPDATE		0x8000
++/* Register index 0 selects the LED0/LED1 selector pair. */
++#define MV88E6390_PORT_LED_MODE_LINK_ACT		0x0022
++
+@@ -340,0 +347 @@
++int mv88e6390_port_setup_leds(struct mv88e6xxx_chip *chip, int port);
+--
+2.39.5
