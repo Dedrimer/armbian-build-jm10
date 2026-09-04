@@ -13,6 +13,14 @@ FULL_DESKTOP="no"
 # Keep the board default, but let a command-line parameter override it. The
 # Armbian CLI parameters are applied before this board file is sourced.
 declare -g JM10_DSA_88E6390="${JM10_DSA_88E6390:-no}"
+# Optional USB debug kit (the board has no TTL UART). When "yes":
+#   - U-Boot: crashlog-to-eMMC dump + pre-kernel watchdog (patches 002/003)
+#   - kernel: Type-C CDC-ACM console (ttyGS0) + RK_PCIE_DBG dump (patches 004/006)
+#   - kernel config: g_serial, RCU-stall-panic; extraargs: console=ttyGS0, panic=10
+# Build example:
+# ./compile.sh BOARD=yjh-jm10-3588 BRANCH=vendor BUILD_MINIMAL=no RELEASE=trixie \
+#               JM10_DSA_88E6390=yes JM10_USB_DEBUG=yes
+declare -g JM10_USB_DEBUG="${JM10_USB_DEBUG:-no}"
 IMAGE_PARTITION_TABLE="gpt"
 # SRC_EXTLINUX="yes"
 # SRC_CMDLINE="rootwait earlycon=uart8250,mmio32,0xfeb50000 console=ttyFIQ0 irqchip.gicv3_pseudo_nmi=0 rootfstype=ext4"
@@ -25,6 +33,14 @@ function post_family_config__yjh_jm10_3588_pin_uboot() {
 	declare -g BOOTSOURCE="https://github.com/radxa/u-boot.git"
 	declare -g BOOTBRANCH="commit:22849bf1cf13c2f0a6f2741a51d4802793d2aecc"
 	declare -g BOOTPATCHDIR="legacy/u-boot-radxa-rk35xx-yjh-jm10-3588"
+
+	# Optional USB debug kit (JM10_USB_DEBUG=yes): crashlog dump to eMMC and
+	# pre-kernel watchdog live in a separate patch dir so normal builds stay
+	# minimal. See the README "通过 MaskROM Type-C 口调试" section.
+	if [[ "${JM10_USB_DEBUG}" == "yes" ]]; then
+		display_alert "$BOARD" "USB debug kit enabled: U-Boot crashlog dump + watchdog" "info"
+		BOOTPATCHDIR="${BOOTPATCHDIR} legacy/u-boot-radxa-rk35xx-yjh-jm10-3588-debug"
+	fi
 }
 
 function post_family_config__nas-lite_kernel() {
@@ -37,6 +53,13 @@ function post_family_config__nas-lite_kernel() {
 			KERNELPATCHDIR="rockchip-6.1-yjh-jm10"
 			;;
 	esac
+
+	# Optional USB debug kit (JM10_USB_DEBUG=yes, vendor branch only):
+	# Type-C CDC-ACM console (ttyGS0) and RK_PCIE_DBG dump patches.
+	if [[ "${JM10_USB_DEBUG}" == "yes" ]] && [[ "${BRANCH}" == "vendor" ]]; then
+		display_alert "$BOARD" "USB debug kit enabled: kernel ttyGS0 console patches" "info"
+		KERNELPATCHDIR="${KERNELPATCHDIR} rockchip-6.1-yjh-jm10-debug"
+	fi
 }
 
 function post_family_tweaks_bsp__JM10-3588() {
@@ -90,6 +113,62 @@ function custom_kernel_config__JM10-3588_MV88E6XXX() {
 	#fi
 }
 
+# USB debug kit (JM10_USB_DEBUG=yes, vendor branch): g_serial built-in so the
+# MaskROM Type-C port becomes a CDC-ACM serial console (ttyGS0), plus
+# RCU-stall-panic so kernel hangs convert into warm-reboot panics that the
+# U-Boot crashlog dump can capture. Requires the -debug kernel patch dir.
+function custom_kernel_config__JM10-3588_usb_serial_console() {
+	if [[ "${JM10_USB_DEBUG}" != "yes" ]] || [[ ${BRANCH} != "vendor" ]]; then
+		return 0
+	fi
+
+	display_alert "jm10-3588" "Enabling USB gadget serial console (ttyGS0)" "info"
+	kernel_config_modifying_hashes+=(
+		"CONFIG_USB_G_SERIAL=y"
+		# Convert kernel hangs into warm-reboot panics so the pstore/ramoops
+		# crash log survives (warm reset keeps DDR; a hang keeps nobody alive
+		# to log). The PCIe3.0 probe hang shows as an RCU stall (Rockchip PCIe
+		# guide 13.3) - panic on it, then panic=10 in extraargs reboots warm.
+		"CONFIG_BOOTPARAM_RCU_STALL_PANIC=y"
+		"CONFIG_RCU_CPU_STALL_TIMEOUT=10"
+	)
+
+	if [[ -f .config ]] && [[ "${KERNEL_CONFIGURE:-yes}" != "yes" ]]; then
+		kernel_config_set_y CONFIG_USB_G_SERIAL
+		kernel_config_set_y CONFIG_BOOTPARAM_RCU_STALL_PANIC
+		kernel_config_set_val CONFIG_RCU_CPU_STALL_TIMEOUT 10
+		run_kernel_make olddefconfig
+	fi
+}
+
+
+function post_family_tweaks__JM10-3588_ttygs_console() {
+	# USB debug kit only. Kernel console on the MaskROM Type-C via g_serial
+	# (CDC-ACM, /dev/ttyACM0 on the host), plus warm-reset insurance
+	# (panic=10 auto-reboot, systemd hardware watchdog) so the
+	# pstore/ramoops crash log survives a hang. Vendor branch only (the DTS
+	# patch that puts usbdrd_dwc3_0 in peripheral mode is vendor-only).
+	if [[ "${JM10_USB_DEBUG}" != "yes" ]] || [[ ${BRANCH} != "vendor" ]]; then
+		return 0
+	fi
+
+	if [[ -f "${SDCARD}/boot/armbianEnv.txt" ]]; then
+		display_alert "jm10-3588" "Adding console=ttyGS0 + panic=10 to extraargs" "info"
+		sed -i 's/^extraargs=/extraargs=console=ttyGS0,115200 panic=10 /' "${SDCARD}/boot/armbianEnv.txt"
+	fi
+
+	# panic=10 auto-reboots (warm) on kernel panic; the systemd hardware
+	# watchdog reboots (warm) if userspace hangs. Warm resets keep DDR (and
+	# the pstore buffer at 0x110000) alive; a power cycle does not.
+	if [[ -f "${SDCARD}/etc/systemd/system.conf" ]]; then
+		display_alert "jm10-3588" "Enabling systemd hardware watchdog (RuntimeWatchdogSec=10)" "info"
+		sed -i 's/^#\?RuntimeWatchdogSec=.*/RuntimeWatchdogSec=10/' "${SDCARD}/etc/systemd/system.conf"
+		grep -q "^RuntimeWatchdogSec=" "${SDCARD}/etc/systemd/system.conf" ||
+			echo "RuntimeWatchdogSec=10" >> "${SDCARD}/etc/systemd/system.conf"
+	fi
+
+	return 0
+}
 
 function post_family_tweaks__JM10-3588_enable_services() {
 	display_alert "fix armbian upgrade; hold kernel and dtb"

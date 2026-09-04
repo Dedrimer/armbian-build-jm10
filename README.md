@@ -146,6 +146,102 @@ JM10 不再在板卡 hook 中固定 vendor 内核提交；vendor 内核分支沿
 
 两个目录都包含 JM10 DTS 补丁以及针对 DSA、RGMII、Type-C/USB 的修正。补丁会把 `rk3588-yjh-jm10.dts` 注册到对应内核的设备树 Makefile。
 
+### USB 调试套件（可选，`JM10_USB_DEBUG=yes`）
+
+JM10 没有引出 TTL 调试串口，内核起不来时完全无输出。构建系统提供
+一套**可选**的、全部走 MaskROM Type-C 口的调试设施，默认关闭，
+构建时传 `JM10_USB_DEBUG=yes` 启用（仅 vendor 分支）：
+
+```bash
+./compile.sh BOARD=yjh-jm10-3588 BRANCH=vendor RELEASE=trixie \
+  BUILD_DESKTOP=no BUILD_MINIMAL=no KERNEL_CONFIGURE=no \
+  JM10_DSA_88E6390=yes JM10_USB_DEBUG=yes
+```
+
+启用后追加应用两组补丁目录并调整内核配置：
+
+- U-Boot `patch/u-boot/legacy/u-boot-radxa-rk35xx-yjh-jm10-3588-debug/`
+  （崩溃转储 + 看门狗，见下文第 2 条）
+- 内核 `userpatches/kernel/rockchip-6.1-yjh-jm10-debug/`
+  （Type-C CDC 控制台 + PCIe 调试转储）
+- 内核配置：`CONFIG_USB_G_SERIAL=y`、
+  `CONFIG_BOOTPARAM_RCU_STALL_PANIC=y`、`RCU_CPU_STALL_TIMEOUT=10`
+- `armbianEnv.txt` 的 `extraargs` 追加 `console=ttyGS0,115200
+  panic=10`；systemd 硬件看门狗 `RuntimeWatchdogSec=10`
+
+**1. USB CDC-ACM 内核控制台**
+
+`kernel-rk35xx-vendor-004-typec-cdc-console.patch` 把 MaskROM Type-C
+对应的 `usbdrd_dwc3_0` 固定为 `peripheral` 模式。内核启动后
+（gadget 初始化完成，约开机后几秒），把 Type-C 连到电脑即可看到
+完整内核日志——printk 积压会在 gadget 连接时回放：
+
+```bash
+# 主机侧
+dmesg -w &            # 或: cat /dev/ttyACM0
+ls /dev/ttyACM0       # 设备枚举为 ttyACM*
+```
+
+局限：如果内核在 gadget 初始化之前就挂死（早期崩溃），该通道拿
+不到日志，此时用第 2 条。
+
+**2. U-Boot pstore/ramoops 崩溃转储**
+
+U-Boot 补丁 `u-boot-rk35xx-legacy-002-crashlog-to-emmc.patch` 在进入
+download 模式（开机或复位时**按住音量+（VOL+）**，或 Linux 里
+`reboot loader`）时，把 RAM 中的 ramoops/pstore 区
+（`0x110000..0x1f0000`，内核 console 日志与 U-Boot 自身日志都在
+这里，内核 `rk3588-linux.dtsi` 的 `ramoops` 节点 + U-Boot
+`CONFIG_PSTORE`）转储到 eMMC 4M–8M 空闲区（LBA 0x2000）：
+
+```bash
+# 进入 download 模式后，主机侧：
+sudo rkdeveloptool rl 0x2000 0x700 jm10-crashlog.bin
+strings jm10-crashlog.bin | less
+```
+
+注意区分设备状态：RKDevTool 里 **LOADER** = U-Boot 在跑（转储
+有效）；**MASKROM** = ROM 在跑（转储没执行，按住的是 BOOT 键而非
+VOL+）。ramoops 依赖 DDR 内容跨复位保留——出问题后用热复位，
+不要断电重启；冷启动会丢日志。该 U-Boot 补丁同时设置
+`CONFIG_PERSISTENT_RAM_ADDR=0x110000` 作为无 ATAG_PSTORE 时的
+兜底，保证 U-Boot/SPL 自身日志一定落盘。
+
+**「挂死转热复位」三保险**（调试套件启用时），保证挂死后
+pstore 日志可恢复：
+
+1. **U-Boot 看门狗预武装**（`u-boot-rk35xx-legacy-003-arm-watchdog.patch`）：
+   `rk_board_late_init()` 在启动内核前开 DW 看门狗（WDT0@0xfeaf0000，
+   24MHz，TORR=15 ≈ 89s）。内核挂死 → 89s 后**热复位** → DDR/pstore
+   保留。内核 `DW_WATCHDOG=y` 起来后自动接管喂狗（`&wdt` 已使能），
+   健康启动不会误咬。VOL+ 进 download 模式的路径不开狗（该路径不
+   经过 `rk_board_late_init`）。fastboot/recovery 等长会话会被咬，
+   用 MaskROM 刷机代替。
+2. **RCU stall → panic**（`CONFIG_BOOTPARAM_RCU_STALL_PANIC=y` +
+   `RCU_CPU_STALL_TIMEOUT=10`）：软死锁类挂死 10 秒后 panic →
+   `panic=10` 热重启。
+3. **`panic=10` + systemd 硬件看门狗 `RuntimeWatchdogSec=10`**。
+
+**抓取流程（挂死后）**：等待 10–100 秒让看门狗/panic 热复位发生，
+期间**按住 VOL+ 不放**——下次 U-Boot 启动即进 download 模式并自动
+转储；然后 `rkdeveloptool rl 0x2000 0x700` 取回日志。
+
+### PCIe 3.0 x4 插槽（禁用中，等待硬件排查）
+
+vendor DTS 原本只启用了 `pcie30phy`（4 lane 聚合模式）和
+`pcie2x1l0`（PCIe 2.0 x1，供 WiFi），未启用控制器节点 `pcie3x4`，
+x4 插槽因此不会枚举。
+
+启用尝试的历史与结论见
+[docs/pcie3x4-crash-analysis.md](docs/pcie3x4-crash-analysis.md)：
+配置与 RK 官方《Rockchip PCIe 开发指南》V6.26 第 2.5.1 节 EVB1
+参考设计一致、DTS 侧无低速 IO 冲突，但实机在总线枚举时 config
+空间读永久挂死，软件侧已无可收敛空间，判断为 x4 插槽 100MHz
+参考时钟路径的硬件问题。排查需要的工具/方法与重试补丁模板也
+在该文档中。当前 `pcie3x4` 保持禁用；调试套件里的
+`kernel-rk35xx-vendor-006-pcie-debug-dump.patch`（RK_PCIE_DBG）保留
+在 `-debug` 目录，供硬件排查后重试时使用。
+
 ### U-Boot 固定版本与启动修复
 
 新基线的 `next-dev-v2024.10` U-Boot 在 JM10 上无法启动，而使用旧镜像中的 U-Boot 可以正常启动。JM10 当前固定使用 Radxa U-Boot 提交：
@@ -154,13 +250,13 @@ JM10 不再在板卡 hook 中固定 vendor 内核提交；vendor 内核分支沿
 22849bf1cf13c2f0a6f2741a51d4802793d2aecc
 ```
 
-板卡 hook 会在构建配置的后期覆盖 RK3588 家族默认值，因此上游更新家族 U-Boot 分支不会改变 JM10 的 U-Boot。JM10 还使用独立的冻结补丁目录，只包含旧可启动镜像构建时应用的两个补丁，不会继承公共目录后续新增的 U-Boot 补丁：
+板卡 hook 会在构建配置的后期覆盖 RK3588 家族默认值，因此上游更新家族 U-Boot 分支不会改变 JM10 的 U-Boot。JM10 还使用独立的冻结补丁目录，只包含保证可启动的最小补丁集，不会继承公共目录后续新增的 U-Boot 补丁：
 
 ```text
 patch/u-boot/legacy/u-boot-radxa-rk35xx-yjh-jm10-3588/
 ```
 
-其中一个补丁关闭 `CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION`，另一个补丁增加 RK3566 的 Rockchip 镜像名称支持。不要把 `BOOTBRANCH` 改回家族默认值，也不要将 `BOOTPATCHDIR` 改为 `legacy/u-boot-radxa-rk35xx` 或追加 `v2024.10` 目录，否则可能再次生成无法启动的 U-Boot。
+其中一个补丁关闭 `CONFIG_OPTEE_ALWAYS_USE_SECURITY_PARTITION`，另一个补丁增加 RK3566 的 Rockchip 镜像名称支持。`JM10_USB_DEBUG=yes` 时会追加 `-debug` 目录（崩溃转储 + 看门狗，见上文「USB 调试套件」）。不要把 `BOOTBRANCH` 改回家族默认值，也不要将 `BOOTPATCHDIR` 改为 `legacy/u-boot-radxa-rk35xx` 或追加 `v2024.10` 目录，否则可能再次生成无法启动的 U-Boot。
 
 当前固定 U-Boot 的构建配置位于 [`config/boards/yjh-jm10-3588.csc`](config/boards/yjh-jm10-3588.csc)。
 

@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: John Doe <john.doe@somewhere.on.planet>
+Date: Sat, 5 Sep 2026 00:00:00 +0800
+Subject: [PATCH] JM10: arm the DW watchdog before booting the kernel
+
+The JM10 kernel currently hangs during PCIe3.0 probe (before the USB
+CDC console or pstore comes up), leaving a dead board and no trace. To
+make such early hangs recoverable, arm the DW watchdog (WDT0 at
+0xfeaf0000, 24 MHz tick, TORR=15 ~= 89 s) right before booting the
+kernel. A hang then ends in a warm reset, which preserves DDR and the
+ramoops/pstore log at 0x110000; on the next boot, holding VOL+ enters
+U-Boot download mode and do_board_download() copies that log to eMMC
+for host-side analysis.
+
+The Linux DW watchdog driver (CONFIG_DW_WATCHDOG=y, wdt node enabled in
+the JM10 DTS) inherits the running watchdog via WDOG_HW_RUNNING and
+keeps it fed until systemd takes over (RuntimeWatchdogSec=10), so a
+healthy boot is never reset.
+
+Not armed on the download-mode path: setup_download_mode() runs earlier
+in board_late_init() and never returns when VOL+ is held, so
+rk_board_late_init() never executes. Paths that run long AFTER this
+point (fastboot, recovery) would reset ~89 s in - use MaskROM flashing
+instead.
+
+Signed-off-by: John Doe <john.doe@somewhere.on.planet>
+---
+ board/rockchip/evb_rk3588/evb_rk3588.c | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/board/rockchip/evb_rk3588/evb_rk3588.c b/board/rockchip/evb_rk3588/evb_rk3588.c
+index 0f1e2d3c4b5..a1b2c3d4e5f 100644
+--- a/board/rockchip/evb_rk3588/evb_rk3588.c
++++ b/board/rockchip/evb_rk3588/evb_rk3588.c
+@@ -178,3 +178,41 @@ void do_board_download(void)
+ 	else
+ 		printf("JM10: crashlog dumped, pull it with: rkdeveloptool rl 0x2000 0x700\n");
+ }
++
++/*
++ * Arm the DW watchdog (WDT0 @ 0xfeaf0000, 24 MHz tick) before booting the
++ * kernel, so an early kernel hang (e.g. PCIe3.0 probe) ends in a warm
++ * reset instead of a dead board. Warm resets preserve DDR and the
++ * ramoops/pstore log at 0x110000, which do_board_download() above copies
++ * to eMMC. The kernel DW watchdog driver inherits the running watchdog
++ * and keeps it fed (WATCHDOG_CORE, WDOG_HW_RUNNING) until systemd takes
++ * over, so a healthy boot is not reset.
++ *
++ * Not armed on the download-mode path (VOL+ held): setup_download_mode()
++ * runs earlier in board_late_init() and never returns. Long-running
++ * U-Boot paths entered after this point (fastboot/recovery) would reset
++ * ~89s in; use MaskROM flashing instead.
++ *
++ * TORR = 15 => 2^(16+15) / 24 MHz ~= 89 s.
++ */
++#define JM10_CRU_BASE		0xfd7c0000
++#define JM10_CRU_CLKGATE_CON15	(JM10_CRU_BASE + 0x800 + 15 * 4)
++#define JM10_WDT0_BASE		0xfeaf0000
++#define JM10_WDT_CR		0x00
++#define JM10_WDT_TORR		0x04
++#define JM10_WDT_CRR		0x0c
++
++int rk_board_late_init(void)
++{
++	/* Ungate PCLK_WDT0 (bit0) and TCLK_WDT0 (bit1). */
++	writel(readl(JM10_CRU_CLKGATE_CON15) & ~0x3, JM10_CRU_CLKGATE_CON15);
++
++	/* Reset mode (RMOD=0), enabled, max timeout. */
++	writel(0xff, JM10_WDT0_BASE + JM10_WDT_TORR);
++	writel(0x1, JM10_WDT0_BASE + JM10_WDT_CR);
++	writel(0x76, JM10_WDT0_BASE + JM10_WDT_CRR);
++
++	printf("JM10: watchdog armed (~89s) before booting kernel\n");
++
++	return 0;
++}
+-- 
+2.34.1
+

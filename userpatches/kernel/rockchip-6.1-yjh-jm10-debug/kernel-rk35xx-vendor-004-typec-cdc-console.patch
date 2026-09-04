@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: John Doe <john.doe@somewhere.on.planet>
+Date: Fri, 4 Sep 2026 00:00:00 +0800
+ Subject: Patching kernel rk35xx files arch/arm64/boot/dts/rockchip/rk3588-yjh-jm10.dts
+
+The MaskROM Type-C port (usbdrd_dwc3_0 / OTG0) currently runs in OTG
+mode and is not used as a USB host on the JM10. Force it to
+peripheral-only so the built-in g_serial gadget (CONFIG_USB_G_SERIAL=y,
+set by the board hook) can expose a CDC-ACM serial console on ttyGS0.
+Combined with "console=ttyGS0,115200" in extraargs, kernel logs can be
+read from a host as /dev/ttyACM0 even though the board has no TTL
+debug UART. The printk backlog is replayed when the gadget connects.
+
+MaskROM and U-Boot RockUSB recovery through the same port are not
+affected (they run at ROM/loader level, before Linux).
+
+Signed-off-by: John Doe <john.doe@somewhere.on.planet>
+---
+ arch/arm64/boot/dts/rockchip/rk3588-yjh-jm10.dts | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3588-yjh-jm10.dts b/arch/arm64/boot/dts/rockchip/rk3588-yjh-jm10.dts
+index 03f85444404e..e7a1b2c3d4e5 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3588-yjh-jm10.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3588-yjh-jm10.dts
+@@ -1087,7 +1087,10 @@
+ &usbdrd_dwc3_0 {
+ 	status = "okay";
+ 	extcon = <&u2phy0>;
+-	dr_mode = "otg";
++	/* peripheral-only: expose this OTG port (the MaskROM Type-C) as a
++	 * CDC-ACM serial console (g_serial, ttyGS0) for debugging.
++	 * MaskROM/RockUSB recovery is unaffected (ROM level). */
++	dr_mode = "peripheral";
+ };
+ 
+ &u2phy0 {
+
+-- 
+Created with Armbian build tools https://github.com/armbian/build
+

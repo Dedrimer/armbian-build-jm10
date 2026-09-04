@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: John Doe <john.doe@somewhere.on.planet>
+Date: Sat, 5 Sep 2026 00:00:00 +0800
+ Subject: Patching kernel rk35xx files drivers/pci/controller/dwc/pcie-dw-rockchip.c
+
+Enable RK_PCIE_DBG as recommended by the Rockchip PCIe Developer Guide
+section 13.2: when link training fails, the driver dumps the LTSSM
+state and 64 lines of fifo_status (low two digits = LTSSM state
+machine, see guide appendix 14.1) for every link attempt. Needed to
+diagnose the JM10 PCIe 3.0 x4 slot bring-up.
+
+Drop this patch once the slot works; it only prints during link
+training, but the fifo dump is verbose.
+
+Signed-off-by: John Doe <john.doe@somewhere.on.planet>
+---
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index 1111111111..2222222222 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -35,5 +35,5 @@
+ #include "../../../regulator/internal.h"
+ 
+-#define RK_PCIE_DBG			0
++#define RK_PCIE_DBG			1	/* JM10 debug: LTSSM/fifo dump per guide 13.2 */
+ 
+ #define PCIE_DMA_OFFSET			0x380000
+ 
+
+-- 
+Created with Armbian build tools https://github.com/armbian/build
+
