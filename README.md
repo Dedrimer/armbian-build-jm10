@@ -163,7 +163,7 @@ JM10 没有引出 TTL 调试串口，内核起不来时完全无输出。构建�
 - U-Boot `patch/u-boot/legacy/u-boot-radxa-rk35xx-yjh-jm10-3588-debug/`
   （崩溃转储 + 看门狗，见下文第 2 条）
 - 内核 `userpatches/kernel/rockchip-6.1-yjh-jm10-debug/`
-  （Type-C CDC 控制台 + PCIe 调试转储）
+  （Type-C CDC 控制台）
 - 内核配置：`CONFIG_USB_G_SERIAL=y`、
   `CONFIG_BOOTPARAM_RCU_STALL_PANIC=y`、`RCU_CPU_STALL_TIMEOUT=10`
 - `armbianEnv.txt` 的 `extraargs` 追加 `console=ttyGS0,115200
@@ -226,21 +226,13 @@ pstore 日志可恢复：
 期间**按住 VOL+ 不放**——下次 U-Boot 启动即进 download 模式并自动
 转储；然后 `rkdeveloptool rl 0x2000 0x700` 取回日志。
 
-### PCIe 3.0 x4 插槽（禁用中，等待硬件排查）
+### PCIe / mSATA（板上未引出 PCIe 线路）
 
-vendor DTS 原本只启用了 `pcie30phy`（4 lane 聚合模式）和
-`pcie2x1l0`（PCIe 2.0 x1，供 WiFi），未启用控制器节点 `pcie3x4`，
-x4 插槽因此不会枚举。
-
-启用尝试的历史与结论见
-[docs/pcie3x4-crash-analysis.md](docs/pcie3x4-crash-analysis.md)：
-配置与 RK 官方《Rockchip PCIe 开发指南》V6.26 第 2.5.1 节 EVB1
-参考设计一致、DTS 侧无低速 IO 冲突，但实机在总线枚举时 config
-空间读永久挂死，软件侧已无可收敛空间，判断为 x4 插槽 100MHz
-参考时钟路径的硬件问题。排查需要的工具/方法与重试补丁模板也
-在该文档中。当前 `pcie3x4` 保持禁用；调试套件里的
-`kernel-rk35xx-vendor-006-pcie-debug-dump.patch`（RK_PCIE_DBG）保留
-在 `-debug` 目录，供硬件排查后重试时使用。
+板上标注的扩展槽实际是 **mSATA（SATA 协议）**，由 `sata0` 驱动。
+RK3588 除 `pcie2x1l0`（板载 AP6275P WiFi 使用）外，没有把任何其它
+PCIe 控制器（`pcie3x4`/`pcie3x2`/`pcie2x1l1`/`pcie2x1l2`）引到可用
+接口——曾尝试启用 `pcie3x4`，系统在总线枚举时挂死，随后确认该
+x4 通道板上未布线。相关启用与调试补丁均已移除，本板不启用 PCIe。
 
 ### U-Boot 固定版本与启动修复
 

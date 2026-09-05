@@ -15,7 +15,7 @@ FULL_DESKTOP="no"
 declare -g JM10_DSA_88E6390="${JM10_DSA_88E6390:-no}"
 # Optional USB debug kit (the board has no TTL UART). When "yes":
 #   - U-Boot: crashlog-to-eMMC dump + pre-kernel watchdog (patches 002/003)
-#   - kernel: Type-C CDC-ACM console (ttyGS0) + RK_PCIE_DBG dump (patches 004/006)
+#   - kernel: Type-C CDC-ACM console (ttyGS0, patch 004)
 #   - kernel config: g_serial, RCU-stall-panic; extraargs: console=ttyGS0, panic=10
 # Build example:
 # ./compile.sh BOARD=yjh-jm10-3588 BRANCH=vendor BUILD_MINIMAL=no RELEASE=trixie \
@@ -55,7 +55,7 @@ function post_family_config__nas-lite_kernel() {
 	esac
 
 	# Optional USB debug kit (JM10_USB_DEBUG=yes, vendor branch only):
-	# Type-C CDC-ACM console (ttyGS0) and RK_PCIE_DBG dump patches.
+	# Type-C CDC-ACM console (ttyGS0) patch.
 	if [[ "${JM10_USB_DEBUG}" == "yes" ]] && [[ "${BRANCH}" == "vendor" ]]; then
 		display_alert "$BOARD" "USB debug kit enabled: kernel ttyGS0 console patches" "info"
 		KERNELPATCHDIR="${KERNELPATCHDIR} rockchip-6.1-yjh-jm10-debug"
