@@ -226,6 +226,51 @@ pstore 日志可恢复：
 期间**按住 VOL+ 不放**——下次 U-Boot 启动即进 download 模式并自动
 转储；然后 `rkdeveloptool rl 0x2000 0x700` 取回日志。
 
+### 从 eMMC 引导外置盘（可选，`JM10_BOOT_EXTERNAL=yes`）
+
+把完整系统放在外置 **USB2 盘 / mSATA(sata0) 盘**上，eMMC 只承担引导
+（仅放 loader + U-Boot）。构建时传：
+
+```bash
+./compile.sh BOARD=yjh-jm10-3588 BRANCH=vendor RELEASE=trixie \
+  BUILD_DESKTOP=no BUILD_MINIMAL=no KERNEL_CONFIGURE=no \
+  JM10_DSA_88E6390=yes JM10_BOOT_EXTERNAL=yes
+```
+
+启用后：
+
+- **U-Boot** 应用 `patch/u-boot/legacy/u-boot-radxa-rk35xx-yjh-jm10-3588-bootext/`
+  的四个补丁（独立目录，与 `-debug`/USB 调试套件互不依赖）：
+  使能 **SATA/SCSI**（`sata0`/`combphy0_ps`，即 mSATA）、**USB2 host**
+  （host0/host1 的 EHCI+OHCI，VBUS 复用 gpio4 RK_PB0），并把
+  `boot_targets` 调整为 **USB → SATA(SCSI) → SD → eMMC**（eMMC 最后）。
+- **额外产物** `${version}.bootloader.img`（16 MiB **无分区表的裸
+  loader 镜像**：`idbloader.img` @ 扇区 64 + `u-boot.itb` @ 扇区
+  16384，与同版本完整镜像前部字节一致；BootROM/SPL 只读这两个固定
+  偏移），随镜像自动压缩/搬进 `output/images/`。
+
+使用：把 `.bootloader.img` 烧到 eMMC 前 16 MiB（RKDevTool「下载
+镜像」或 `rkdeveloptool wl 0`；镜像不带 GPT，工具会按裸镜像从
+LBA 0 写入），再把完整 Armbian 镜像烧到外置 USB2 盘或 mSATA，插盘
+开机即可由 eMMC 引导外置系统。实测验证：完整镜像与 bootloader
+镜像均能引导 USB 外置盘启动。
+
+注意：**不要**给 bootloader 镜像加分区表——带 GPT 时烧写工具会按
+分区语义重排写入（RKDevTool 对非标准 GPT 布局的裸镜像会失败），
+之前版本因此无法启动。
+
+限制与注意：
+
+1. 外置 USB 走 **USB2/A 口**（EHCI/OHCI）。USB3/dwc3-host 不使能，
+   以保留 Type-C 口的 rockusb 刷机/CDC 调试 gadget 角色。
+2. 外置盘是完整镜像时，其 `/boot/armbianEnv.txt` 的 root 默认指向
+   `mmcblk0p1`（针对 eMMC 整盘安装）；改为指向外置盘 root 分区，
+   例如 `rootdev=/dev/sda1`（USB）或对应 SATA 节点，否则内核挂载错盘。
+3. USB2 host 引导已实测通过（完整镜像和 bootloader 镜像均能从 USB
+   外置盘启动）；mSATA/SCSI 引导路径尚待实测。观察引导顺序可用
+   `JM10_USB_DEBUG=yes` 的 ttyGS0 控制台看 `Scanning usb 0:1` →
+   `scsi 0` → `mmc1` → `mmc0`。
+
 ### PCIe / mSATA（板上未引出 PCIe 线路）
 
 板上标注的扩展槽实际是 **mSATA（SATA 协议）**，由 `sata0` 驱动。

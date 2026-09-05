@@ -21,6 +21,14 @@ declare -g JM10_DSA_88E6390="${JM10_DSA_88E6390:-no}"
 # ./compile.sh BOARD=yjh-jm10-3588 BRANCH=vendor BUILD_MINIMAL=no RELEASE=trixie \
 #               JM10_DSA_88E6390=yes JM10_USB_DEBUG=yes
 declare -g JM10_USB_DEBUG="${JM10_USB_DEBUG:-no}"
+# Boot-from-external mode (eMMC only carries the bootloader; the OS lives on
+# an external USB2 / mSATA disk). When "yes":
+#   - U-Boot: enable USB host (EHCI/OHCI) + SATA/SCSI, boot order USB->SATA->SD->eMMC
+#   - output an extra dd-able ${version}.bootloader.img (16 MiB, idbloader+u-boot.itb)
+# Build example:
+# ./compile.sh BOARD=yjh-jm10-3588 BRANCH=vendor BUILD_MINIMAL=no RELEASE=trixie \
+#               JM10_DSA_88E6390=yes JM10_BOOT_EXTERNAL=yes JM10_USB_DEBUG=yes
+declare -g JM10_BOOT_EXTERNAL="${JM10_BOOT_EXTERNAL:-no}"
 IMAGE_PARTITION_TABLE="gpt"
 # SRC_EXTLINUX="yes"
 # SRC_CMDLINE="rootwait earlycon=uart8250,mmio32,0xfeb50000 console=ttyFIQ0 irqchip.gicv3_pseudo_nmi=0 rootfstype=ext4"
@@ -40,6 +48,14 @@ function post_family_config__yjh_jm10_3588_pin_uboot() {
 	if [[ "${JM10_USB_DEBUG}" == "yes" ]]; then
 		display_alert "$BOARD" "USB debug kit enabled: U-Boot crashlog dump + watchdog" "info"
 		BOOTPATCHDIR="${BOOTPATCHDIR} legacy/u-boot-radxa-rk35xx-yjh-jm10-3588-debug"
+	fi
+
+	# Boot-from-external mode (JM10_BOOT_EXTERNAL=yes): USB host + SATA/SCSI
+	# enablement and the USB->SATA->SD->eMMC boot-order patches live in a
+	# separate dir, independently gated from -debug.
+	if [[ "${JM10_BOOT_EXTERNAL}" == "yes" ]]; then
+		display_alert "$BOARD" "Boot-from-external enabled: U-Boot USB/SATA + boot order" "info"
+		BOOTPATCHDIR="${BOOTPATCHDIR} legacy/u-boot-radxa-rk35xx-yjh-jm10-3588-bootext"
 	fi
 }
 
@@ -249,5 +265,40 @@ EOF
 	chmod 600 "${SDCARD}/etc/netplan/10-dsa-MV88E6XXX-br0.yaml"
 	fi
 
+	return 0
+}
+
+# JM10 boot-from-external (JM10_BOOT_EXTERNAL=yes): emit a 16 MiB dd-able
+# loader image next to the full image: idbloader.img @ sector 64 and
+# u-boot.itb @ sector 16384, byte-identical to the first 16 MiB of the full
+# image (verified bootable by the full image itself). No partition table:
+# the BootROM and SPL only read the two fixed offsets, and a GPT here only
+# confuses tools (RKDevTool "download image" writes per-GPT-partition, so a
+# bootloader GPT makes it re-lay the eMMC instead of a raw LBA write).
+# dd/flash it to the front of the eMMC; keep the OS on an external
+# USB2/mSATA disk.
+function post_build_image__yjh_jm10_3588_bootloader_image() {
+	[[ "${JM10_BOOT_EXTERNAL}" == "yes" ]] || return 0
+	[[ -n "${FINAL_IMAGE_FILE:-}" ]] || return 0
+
+	local uboot_deb="${DEB_STORAGE}/${image_artifacts_debs_reversioned["uboot"]}"
+	[[ -f "${uboot_deb}" ]] || exit_with_error "U-Boot deb missing for bootloader image: ${uboot_deb}"
+
+	local extract_dir uboot_lib out
+	extract_dir="$(mktemp -d)"
+	run_host_command_logged dpkg -x "${uboot_deb}" "${extract_dir}"
+	uboot_lib="$(find "${extract_dir}/usr/lib" -maxdepth 1 -type d -name 'linux-u-boot-*' | head -1)"
+	[[ -n "${uboot_lib}" && -f "${uboot_lib}/idbloader.img" && -f "${uboot_lib}/u-boot.itb" ]] \
+		|| exit_with_error "idbloader.img/u-boot.itb missing in ${uboot_deb}"
+
+	# 16 MiB sparse zero file, then the two blobs at the BootROM's fixed
+	# offsets - exactly the full image's leading layout.
+	out="${DESTIMG}/${version}.bootloader.img"
+	run_host_command_logged dd if=/dev/zero of="${out}" bs=1M count=0 seek=16
+	run_host_command_logged dd if="${uboot_lib}/idbloader.img" of="${out}" seek=64 conv=notrunc
+	run_host_command_logged dd if="${uboot_lib}/u-boot.itb" of="${out}" seek=16384 conv=notrunc
+	rm -rf "${extract_dir}"
+
+	display_alert "$BOARD" "external-boot loader image -> ${out##*/}" "info"
 	return 0
 }

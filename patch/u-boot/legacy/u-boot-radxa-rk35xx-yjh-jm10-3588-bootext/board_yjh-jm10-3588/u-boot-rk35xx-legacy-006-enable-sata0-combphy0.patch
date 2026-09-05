@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: John Doe <john.doe@somewhere.on.planet>
+Date: Sat, 5 Sep 2026 12:00:00 +0800
+Subject: [PATCH] JM10 boot-from-external: enable sata0 + combphy0_ps in the U-Boot control DT
+
+Part of the optional JM10_BOOT_EXTERNAL mode: keep a full OS on an
+external USB2 / mSATA disk and boot it from an eMMC that carries only
+the bootloader. Apply together with the sibling boot-ext patches.
+
+Signed-off-by: John Doe <john.doe@somewhere.on.planet>
+---
+ arch/arm/dts/rk3588-u-boot.dtsi | 11 +
+ 1 file changed, 11 insertions(+)
+
+diff --git a/arch/arm/dts/rk3588-u-boot.dtsi b/arch/arm/dts/rk3588-u-boot.dtsi
+index 8ae5088d478e..8ae5088d478e 100644
+--- a/arch/arm/dts/rk3588-u-boot.dtsi
++++ b/arch/arm/dts/rk3588-u-boot.dtsi
+@@ -285,3 +285,14 @@
+ {
+ 	u-boot,dm-spl;
+ };
++/* JM10 boot-from-external: enable SATA0 (mSATA) with combphy0_ps for SCSI
++ * boot. The RK3588_PD_PHP power-domains reference is inert here (U-Boot has
++ * no RK3588 power-domain driver; PHP is powered at reset). */
++&sata0 {
++	status = "okay";
++};
++
++&combphy0_ps {
++	status = "okay";
++};
++
+-- 

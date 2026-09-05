@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: John Doe <john.doe@somewhere.on.planet>
+Date: Sat, 5 Sep 2026 12:00:00 +0800
+Subject: [PATCH] JM10 boot-from-external: enable USB2 host (EHCI/OHCI) in the U-Boot control DT
+
+Part of the optional JM10_BOOT_EXTERNAL mode: keep a full OS on an
+external USB2 / mSATA disk and boot it from an eMMC that carries only
+the bootloader. Apply together with the sibling boot-ext patches.
+
+Signed-off-by: John Doe <john.doe@somewhere.on.planet>
+---
+ arch/arm/dts/rk3588-u-boot.dtsi | 51 +
+ 1 file changed, 51 insertions(+)
+
+diff --git a/arch/arm/dts/rk3588-u-boot.dtsi b/arch/arm/dts/rk3588-u-boot.dtsi
+index 8ae5088d478e..8ae5088d478e 100644
+--- a/arch/arm/dts/rk3588-u-boot.dtsi
++++ b/arch/arm/dts/rk3588-u-boot.dtsi
+@@ -296,3 +296,54 @@
+ 	status = "okay";
+ };
+ 
++/* JM10 boot-from-external: enable USB2 host ports (EHCI/OHCI) so a USB
++ * mass-storage disk can boot. VBUS via gpio4 RK_PB0 (same pin as the kernel
++ * vcc5v0_host). USB3/dwc3-host stays off to keep the Type-C gadget role
++ * (rockusb flashing / CDC console) intact. */
++/ {
++	vcc5v0_host: vcc5v0-host-regulator {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc5v0_host";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		regulator-boot-on;
++		regulator-always-on;
++		enable-active-high;
++		gpio = <&gpio4 RK_PB0 GPIO_ACTIVE_HIGH>;
++	};
++};
++
++&u2phy2 {
++	status = "okay";
++};
++
++&u2phy2_host {
++	phy-supply = <&vcc5v0_host>;
++	status = "okay";
++};
++
++&usb_host0_ehci {
++	status = "okay";
++};
++
++&usb_host0_ohci {
++	status = "okay";
++};
++
++&u2phy3 {
++	status = "okay";
++};
++
++&u2phy3_host {
++	phy-supply = <&vcc5v0_host>;
++	status = "okay";
++};
++
++&usb_host1_ehci {
++	status = "okay";
++};
++
++&usb_host1_ohci {
++	status = "okay";
++};
++
+-- 

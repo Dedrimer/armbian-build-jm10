@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: John Doe <john.doe@somewhere.on.planet>
+Date: Sat, 5 Sep 2026 12:00:00 +0800
+Subject: [PATCH] JM10 boot-from-external: boot order USB -> SATA -> SD -> eMMC
+
+Part of the optional JM10_BOOT_EXTERNAL mode: keep a full OS on an
+external USB2 / mSATA disk and boot it from an eMMC that carries only
+the bootloader. Apply together with the sibling boot-ext patches.
+
+Signed-off-by: John Doe <john.doe@somewhere.on.planet>
+---
+ include/configs/rockchip-common.h | 2 +
+ 1 file changed, 2 insertions(+)
+
+diff --git a/include/configs/rockchip-common.h b/include/configs/rockchip-common.h
+index e1c4779bc7f1..e1c4779bc7f1 100644
+--- a/include/configs/rockchip-common.h
++++ b/include/configs/rockchip-common.h
+@@ -120,10 +120,10 @@
+ 
+ #define BOOT_TARGET_DEVICES(func) \
+ 	BOOT_TARGET_USB(func) \
++	BOOT_TARGET_SCSI(func) \
+ 	BOOT_TARGET_SD(func) \
++	BOOT_TARGET_EMMC(func) \
+ 	BOOT_TARGET_NVME(func) \
+-	BOOT_TARGET_SCSI(func) \
+-	BOOT_TARGET_EMMC(func) \
+ 	BOOT_TARGET_MTD(func) \
+ 	BOOT_TARGET_RKNAND(func) \
+ 	BOOT_TARGET_PXE(func) \
+-- 
