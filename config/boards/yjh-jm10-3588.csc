@@ -192,12 +192,20 @@ function post_family_tweaks__JM10-3588_enable_services() {
 		display_alert "$BOARD" "Enabling JM10-3588 upgrade lock dtb adn kernel" "info"
 		chroot_sdcard apt-mark hold linux-image-legacy-rk35xx
 		chroot_sdcard apt-mark hold linux-dtb-legacy-rk35xx
-		chroot_sdcard apt-mark hold linux-u-boot-yjh-jm10-3588-legacy
 	else
 		display_alert "$BOARD" "Enabling JM10-3588 upgrade lock dtb adn kernel" "info"
 		chroot_sdcard apt-mark hold linux-image-vendor-rk35xx
 		chroot_sdcard apt-mark hold linux-dtb-vendor-rk35xx
-		chroot_sdcard apt-mark hold linux-u-boot-yjh-jm10-3588-vendor
+	fi
+
+	# Hold the U-Boot package too, so an upgrade cannot swap the bootloader under
+	# the board. BOOTCONFIG=none means no U-Boot package was built or installed
+	# at all (JM10_UEFI_BOOT=yes), and `apt-mark hold` exits 100 for a package
+	# that does not exist, which would abort the whole build.
+	if [[ "${BOOTCONFIG}" != "none" ]]; then
+		chroot_sdcard apt-mark hold "linux-u-boot-yjh-jm10-3588-${BRANCH}"
+	else
+		display_alert "$BOARD" "Not holding a U-Boot package (BOOTCONFIG=none)" "info"
 	fi
 
 	display_alert "$BOARD" "Enabling rk3588-bluetooth.service" "info"
