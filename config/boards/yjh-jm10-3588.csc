@@ -106,36 +106,56 @@ function extension_prepare_config__dsa() {
 	fi
 }
 
-# Marvell MV88E6390X DSA switch support for the hard-modified JM10 (eth1..eth8
-# are switch ports hanging off the GMAC in DSA mode; see the README).
+# Marvell MV88E6390X DSA switch support for the hard-modified JM10: eth1..eth8
+# are switch ports hanging off the GMAC in DSA mode (see the README).
 #
-# Note the options are *declared*, not written: `opts_y`/`opts_m`/`opts_val` are
-# applied by armbian_kernel_config_apply_opts_from_arrays(), which runs the
-# scripts/config edits when a .config is in place and folds the same list into
-# kernel_config_modifying_hashes when there is none (the artifact-version
-# phase). Writing the .config by hand here -- kernel_config_set_* plus
-# run_kernel_make olddefconfig, behind a `KERNEL_CONFIGURE != yes` guard -- is
-# what made every build that set KERNEL_CONFIGURE=yes silently skip this block
-# and ship a kernel with `# CONFIG_NET_DSA_MV88E6XXX is not set`, i.e. no
-# mv88e6xxx.ko and no switch.
+# The options are *declared*, not written: opts_y/opts_m/opts_val are applied by
+# armbian_kernel_config_apply_opts_from_arrays(), which runs the scripts/config
+# edits whenever a .config is in place -- KERNEL_CONFIGURE=yes included, where
+# menuconfig merely opens on top of the result -- and only feeds
+# kernel_config_modifying_hashes in the artifact-version phase, which has no
+# tree. Writing the .config by hand here, behind a `KERNEL_CONFIGURE != yes`
+# guard, is what used to make every KERNEL_CONFIGURE=yes build ship a kernel
+# with `# CONFIG_NET_DSA_MV88E6XXX is not set` and no mv88e6xxx.ko.
 #
-# Requested on any legacy/vendor build, not only when JM10_DSA_88E6390=yes
+# Requested on every legacy/vendor build, not only when JM10_DSA_88E6390=yes
 # picks the -dsa image suffix and writes the Netplan bridge: the driver has to
 # be in the kernel either way, and the Kconfig below is the only thing that
 # decides whether it is.
+#
+# Built-in (=y), not =m -- and that reaches much further than the driver:
+#
+#   BRIDGE            depends on IPV6 || IPV6=n    (net/bridge/Kconfig)
+#   NET_DSA           depends on BRIDGE || BRIDGE=n
+#                     depends on HSR || HSR=n      (net/dsa/Kconfig)
+#   NET_DSA_MV88E6XXX depends on NET_DSA           (drivers/net/dsa/mv88e6xxx/Kconfig)
+#
+# A tristate dependency *caps* what it guards, so with the shipped config's
+# IPV6=m / BRIDGE=m / HSR=m the chain silently resolves to =m whatever is asked
+# for here: `X || X=n` is satisfied by X=y or X=n, never by X=m. All four move
+# together or mv88e6xxx stays a module. The pull-in is the price of a built-in
+# switch driver: IPV6, BRIDGE, STP, LLC and the IP tunnel stack become built-in
+# too. BRIDGE=y is in fact what Armbian core already asks for in opts_y -- with
+# the shipped IPV6=m that request is being capped to =m today as well.
+#
+# None of these may appear in opts_m: opts_m is applied after opts_y, so the
+# module value would win. Nothing else in the tree sets them; the only other
+# mention is the tracked defconfig, which this overrides.
 function custom_kernel_config__JM10-3588_MV88E6XXX() {
-	display_alert "jm10-3588" "Requesting Marvell MV88E6XXX DSA switch support" "info"
+	display_alert "jm10-3588" "Forcing built-in Marvell MV88E6XXX DSA support" "info"
 
 	# shellcheck disable=SC2034 # read by armbian_kernel_config_apply_opts_from_arrays
 	opts_y+=(
-		"NET_VENDOR_MARVELL"    # gating menu for MVMDIO below (ethernet/marvell/Kconfig)
-		"NET_DSA_MV88E6XXX_PTP" # needs PTP_1588_CLOCK, which the config already has
-		"MVMDIO"                # MDIO bus driver the switch is probed on
-	)
-	# shellcheck disable=SC2034
-	opts_m+=(
-		"NET_DSA"           # already =m in the tracked config; declared so the hash covers it
-		"NET_DSA_MV88E6XXX" # the driver; selects the DSA/EDSA taggers it needs
+		"IPV6"                  # uncaps BRIDGE
+		"BRIDGE"                # uncaps NET_DSA, and needed for br0 anyway
+		"HSR"                   # uncaps NET_DSA the other way; unused here otherwise
+		"NET_DSA"               # DSA core; selects the DSA/EDSA taggers
+		"NET_DSA_MV88E6XXX"     # the switch driver
+		"NET_DSA_MV88E6XXX_PTP" # bool; needs PTP_1588_CLOCK=y ...
+		"PTP_1588_CLOCK"        # ... so pin that dependency too
+		"NET_VENDOR_MARVELL"    # menu gate for MVMDIO below
+		"MVMDIO"                # Marvell MDIO bus driver; belt and braces, the
+		                        # switch is on the GMAC's own MDIO (&mdio0 in the DTS)
 	)
 }
 

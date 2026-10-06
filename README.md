@@ -99,12 +99,40 @@ JM10 的板卡入口是 [`config/boards/yjh-jm10-3588.csc`](config/boards/yjh-jm
 DSA 模式当前只在 `vendor`/`legacy` 且 `BUILD_DESKTOP=no` 时生成运行时桥接配置。构建脚本会：
 
 1. 将镜像文件名增加 `-dsa` 后缀。
-2. 启用 `CONFIG_NET_VENDOR_MARVELL`、`CONFIG_NET_DSA`、`CONFIG_NET_DSA_MV88E6XXX`、`CONFIG_NET_DSA_MV88E6XXX_PTP` 和 `CONFIG_MVMDIO`。
+2. 在内核配置中强制内建（`=y`）Marvell 交换机驱动及其依赖链：
+   `CONFIG_NET_DSA`、`CONFIG_NET_DSA_MV88E6XXX`、`CONFIG_NET_DSA_MV88E6XXX_PTP`、
+   `CONFIG_PTP_1588_CLOCK`、`CONFIG_NET_VENDOR_MARVELL`、`CONFIG_MVMDIO`，
+   以及为解开 Kconfig 依赖上限而必须一起内建的 `CONFIG_IPV6`、`CONFIG_BRIDGE`、
+   `CONFIG_HSR`（见下）。
 3. 删除系统生成的 Netplan YAML，并写入 `/etc/netplan/10-dsa-MV88E6XXX-br0.yaml`。
 4. 将 `eth1` 至 `eth8` 加入 `br0`，由 `br0` 通过 DHCP 获取地址。
 5. 将 Netplan 渲染器设置为 `networkd`，并关闭交换机端口自身的 DHCP。
 
-注意：当前板卡 hook 会在 `legacy`/`vendor` 构建中始终请求上述 DSA 内核配置；`JM10_DSA_88E6390` 主要控制 `-dsa` 镜像后缀和运行时 Netplan 桥接文件是否生成。
+注意：板卡 hook 会在 `legacy`/`vendor` 构建中始终请求上述内核配置（无论
+`JM10_DSA_88E6390` 取值）；`JM10_DSA_88E6390` 只控制 `-dsa` 镜像后缀和运行时
+Netplan 桥接文件是否生成。驱动本身必须始终在核里，否则交换机端口根本不会出现。
+
+### 为什么 IPV6 / BRIDGE / HSR 也被强制内建
+
+Kconfig 里这三个是 tristate 依赖，而 **tristate 依赖会把被依赖项的值"封顶"**：
+
+```
+BRIDGE            depends on IPV6 || IPV6=n      (net/bridge/Kconfig)
+NET_DSA           depends on BRIDGE || BRIDGE=n
+                  depends on HSR || HSR=n        (net/dsa/Kconfig)
+NET_DSA_MV88E6XXX depends on NET_DSA             (drivers/net/dsa/mv88e6xxx/Kconfig)
+```
+
+`X || X=n` 这种写法只有 `X=y` 或 `X=n` 才成立，`X=m` 会让整个表达式取 `m`。所以
+仓库自带配置里的 `IPV6=m` / `BRIDGE=m` / `HSR=m` 会把 `NET_DSA` 和
+`NET_DSA_MV88E6XXX` 一路压成 `=m`，在 `.config` 里请求 `=y` 是无效的——实测
+只请求 `NET_DSA=y` 得到的仍是 `CONFIG_NET_DSA=m`。四个选项必须一起动。
+
+代价是 IPv6、网桥、STP、LLC 和 IP 隧道栈（`INET_TUNNEL`、`NET_IP_TUNNEL`、
+`IPV6_SIT`、`MPTCP_IPV6`）也随之内建、不再可卸载（`Image` 略大）。顺带一提，
+Armbian 内核核心 hook 本来就在请求 `CONFIG_BRIDGE=y`
+（`lib/functions/compilation/armbian-kernel.sh` 的 `opts_y+=("BRIDGE")`），
+只是被 `IPV6=m` 一直压成 `=m`。
 
 DSA 方案主要按 `vendor` 6.1 内核验证；`legacy` 5.10 的 DSA 组合未充分验证。建议先使用 vendor 构建测试。
 
@@ -122,14 +150,17 @@ GMAC 主接口 `end0` 下的 DSA 从属端口。启用 `JM10_DSA_88E6390=yes` �
 `eth1` 至 `eth8` 而没有 `br0`，先确认构建命令确实传入了该参数，并检查：
 
 ```bash
-modinfo mv88e6xxx   # 驱动本身在不在内核里
+ls /sys/module/mv88e6xxx                                   # 驱动在内核里（内建的也有这个目录）
+grep -w mv88e6xxx "/lib/modules/$(uname -r)/modules.builtin"
 dmesg | grep -i mv88e6xxx
 test -f /etc/netplan/10-dsa-MV88E6XXX-br0.yaml
 sudo netplan generate
 ```
 
-`modinfo mv88e6xxx` 报 “Module not found” 说明内核根本没编出这个驱动，
-与 Netplan 无关：那台机器刷的是没有 `CONFIG_NET_DSA_MV88E6XXX` 的镜像
+驱动是内建的，所以不要用 `modinfo mv88e6xxx` 判断：内建驱动没有 `.ko`，
+`modinfo` 会报 “Module not found”，即使驱动明明在核里。`/sys/module/` 下没有
+`mv88e6xxx` 目录、`modules.builtin` 里也找不到，才说明内核根本没编出这个
+驱动，与 Netplan 无关——那台机器刷的是没有 `CONFIG_NET_DSA_MV88E6XXX` 的镜像
 （早期板卡 hook 在 `KERNEL_CONFIGURE=yes` 时会跳过这段内核配置），需要
 重编内核并重刷，而不是在目标板上修网络配置。
 
