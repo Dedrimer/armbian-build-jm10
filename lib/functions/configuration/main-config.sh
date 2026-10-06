@@ -65,6 +65,19 @@ function do_main_configuration() {
 	# Armbian config is central tool used in all builds. As its build externally, we have moved it to extension. Enable it here.
 	enable_extension "armbian-config"
 
+	# Opt in to a Proxmox VE image. This must happen before configuration hooks run.
+	declare -g PROXMOX="${PROXMOX:-no}"
+	case "${PROXMOX}" in
+		yes)
+			enable_extension "proxmox"
+			;;
+		no)
+			;;
+		*)
+			exit_with_error "PROXMOX must be yes or no" "PROXMOX=${PROXMOX}"
+			;;
+	esac
+
 	# Fix binman pkg_resources removal in setuptools >= 82. Can be removed when all U-Boot versions are >= v2025.10.
 	enable_extension "uboot-binman-fix-pkg-resources"
 
@@ -101,6 +114,9 @@ function do_main_configuration() {
 	fi
 
 	[[ -z $EXIT_PATCHING_ERROR ]] && EXIT_PATCHING_ERROR="" # exit patching if failed
+	if [[ "${PROXMOX}" == "yes" && -z "${HOST}" ]]; then
+		HOST="pve"
+	fi
 	[[ -z $HOST ]] && HOST="$BOARD"
 	cd "${SRC}" || exit
 
@@ -324,6 +340,10 @@ function do_main_configuration() {
 	# Make NETWORKING_STACK read-only, as further changes would make the whole thing inconsistent.
 	# But only after family config to allow family to change it (post-family hooks CANNOT change NETWORKING_STACK since the hook is running after this).
 	# Individual networking extensions should _check_ this to make there's no spurious enablement.
+	if [[ "${PROXMOX}" == "yes" ]]; then
+		NETWORKING_STACK="none"
+		display_alert "Proxmox networking" "Selecting ifupdown2 instead of Armbian Netplan networking" "info"
+	fi
 	display_alert "Using NETWORKING_STACK" "NETWORKING_STACK: ${NETWORKING_STACK}" "info"
 	declare -g -r NETWORKING_STACK="${NETWORKING_STACK}"
 

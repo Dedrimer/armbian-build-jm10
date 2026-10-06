@@ -60,8 +60,26 @@ JM10 的板卡入口是 [`config/boards/yjh-jm10-3588.csc`](config/boards/yjh-jm
 | `BUILD_MINIMAL` | `yes` | 尽量减少预装软件 |
 | `KERNEL_CONFIGURE` | `no` | 不进入交互式内核配置 |
 | `JM10_DSA_88E6390` | `yes`/`no` | 是否生成 Marvell MV88E6390X DSA 八口桥接配置 |
+| `PROXMOX` | `no` | 设为 `yes` 后在 Debian Trixie 上预装 Proxmox VE，保留 Armbian 内核并使用 ifupdown2 |
 
 `JM10_DSA_88E6390` 默认是 `no`。普通单板构建无需额外设置。
+
+## Proxmox VE 镜像
+
+使用 `PROXMOX=yes` 将镜像构建为 Debian Trixie 上的 Proxmox VE 9 主机。该模式只支持 `amd64` 和 `arm64`，默认主机名为 `pve`（显式传入 `HOST=...` 时保留自定义值），会安装官方 no-subscription 仓库中的 PVE 用户空间与 ZFS DKMS，并保留 Armbian 内核。镜像文件名增加 `-proxmox` 后缀。版本与依赖约束遵循 [Armbian Proxmox 说明](https://docs.armbian.com/software/proxmox-ve/)。
+
+```bash
+./compile.sh \
+  BOARD=yjh-jm10-3588 \
+  BRANCH=vendor \
+  RELEASE=trixie \
+  BUILD_DESKTOP=no \
+  BUILD_MINIMAL=yes \
+  KERNEL_CONFIGURE=no \
+  PROXMOX=yes
+```
+
+网络由 ifupdown2 管理，首次启动会通过 DHCP 配置 `vmbr0`；检测到 DSA 交换机端口时会将 DSA 从属端口加入该桥。Proxmox Web UI 地址为 `https://<主机IP>:8006`，使用 `root` 和系统 root 密码登录。ZFS DKMS 需要可用的 Armbian 内核 headers，因此不支持缺少 headers 的内核配置。
 
 ## DSA 八口交换机模式
 
