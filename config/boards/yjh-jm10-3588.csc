@@ -204,7 +204,7 @@ function post_family_tweaks__JM10-3588_enable_services() {
 	chroot_sdcard_apt_get_install rfkill
 	chroot_sdcard systemctl enable rk3588-bluetooth.service
 
-	if [[ ${JM10_DSA_88E6390} = "yes" ]] && [[ ${BRANCH} = "vendor" || ${BRANCH} = "legacy" ]] && [[ ${BUILD_DESKTOP} = "no" ]]; then
+	if [[ "${PROXMOX:-no}" != "yes" ]] && [[ ${JM10_DSA_88E6390} = "yes" ]] && [[ ${BRANCH} = "vendor" || ${BRANCH} = "legacy" ]] && [[ ${BUILD_DESKTOP} = "no" ]]; then
 		#Only for Jm10 Hard Change. del /etc/netplan/10-dhcp-all-interfaces.yaml and add 10-dsa-MV88E6XXX-br0.yaml
 		#桌面配置	网络使用NetworkManager,自行图形化配置网桥,暂不用10-dsa-MV88E6XXX-br0.yaml配置网桥
 		display_alert "$BOARD" "Only for Jm10 Hard Change del 10-dhcp-all-interfaces.yaml and add 10-dsa-MV88E6XXX-br0.yaml" "info"

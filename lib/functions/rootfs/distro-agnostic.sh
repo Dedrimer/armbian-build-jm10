@@ -285,16 +285,28 @@ function install_distribution_agnostic() {
 
 	echo "${HOST}" > "${SDCARD}"/etc/hostname
 
-	# set hostname in hosts file
-	cat <<- EOF > "${SDCARD}"/etc/hosts
-		127.0.0.1   localhost
-		127.0.1.1   $HOST
-		::1         localhost $HOST ip6-localhost ip6-loopback
-		fe00::0     ip6-localnet
-		ff00::0     ip6-mcastprefix
-		ff02::1     ip6-allnodes
-		ff02::2     ip6-allrouters
-	EOF
+	# Proxmox expects its hostname to resolve to a usable interface address.
+	# Let nss-myhostname resolve it after DHCP instead of pinning it to loopback.
+	if [[ "${PROXMOX:-no}" == "yes" ]]; then
+		cat <<- EOF > "${SDCARD}"/etc/hosts
+			127.0.0.1   localhost
+			::1         localhost ip6-localhost ip6-loopback
+			fe00::0     ip6-localnet
+			ff00::0     ip6-mcastprefix
+			ff02::1     ip6-allnodes
+			ff02::2     ip6-allrouters
+		EOF
+	else
+		cat <<- EOF > "${SDCARD}"/etc/hosts
+			127.0.0.1   localhost
+			127.0.1.1   $HOST
+			::1         localhost $HOST ip6-localhost ip6-loopback
+			fe00::0     ip6-localnet
+			ff00::0     ip6-mcastprefix
+			ff02::1     ip6-allnodes
+			ff02::2     ip6-allrouters
+		EOF
+	fi
 
 	cd "${SRC}" || exit_with_error "cray-cray about ${SRC}"
 
