@@ -187,6 +187,39 @@ function custom_kernel_config__JM10-3588_usb_serial_console() {
 	opts_val["RCU_CPU_STALL_TIMEOUT"]="10"
 }
 
+# 39-bit virtual address space instead of 48-bit, to stop some Android games
+# from crashing on startup inside a Docker container: they reserve address
+# ranges that collide with where a 48-bit layout puts things and die in their
+# own initialiser. Android phones run 4K pages with a 39-bit VA -- which is
+# also this vendor kernel's own default, unlike mainline's 48 -- so handing the
+# container the same layout as the phone is what makes them start. The cost is
+# real: user space gets 256 GiB instead of 128 TiB, mmap randomisation drops
+# from 33 bits to 24, and the page tables go from 4 levels to 3. If you do not
+# run Android containers, `git revert` this commit and rebuild.
+#
+# The mechanism is not the obvious one, so: Armbian core asks for 48-bit VA on
+# *every* arm64 build -- armbian_kernel_config__force_pa_va_48_bits_on_arm64()
+# in lib/functions/compilation/armbian-kernel.sh adds ARM64_VA_BITS_48 to
+# opts_y. That runs in the `armbian_kernel_config` phase, before the
+# `custom_kernel_config` phase this file's hooks live in, and both phases append
+# to the same opts_y array, so core's entry is applied first and this one
+# second. Both symbols then exist in .config, and Kconfig resolves a choice to
+# the last member that says =y in file order -- which is ours, because
+# scripts/config appends a symbol it has not seen yet to the end of the file.
+#
+# So the tracked config must not declare a VA_BITS symbol itself. It does not
+# today, and `make savedefconfig` -- which Armbian runs and copies back over
+# config/kernel/linux-rk35xx-vendor.config -- keeps omitting ARM64_VA_BITS_39
+# because it is this kernel's default. A hand-added CONFIG_ARM64_VA_BITS_39=y
+# would break it by sitting *before* the 48 that core appends; an explicit
+# CONFIG_ARM64_VA_BITS_48=y is harmless and the next export strips it.
+function custom_kernel_config__JM10-3588_va_bits_39() {
+	display_alert "jm10-3588" "Forcing a 39-bit ARM64 virtual address space" "info"
+
+	# shellcheck disable=SC2034 # read by armbian_kernel_config_apply_opts_from_arrays
+	opts_y+=("ARM64_VA_BITS_39")
+}
+
 
 function post_family_tweaks__JM10-3588_ttygs_console() {
 	# USB debug kit only. Kernel console on the MaskROM Type-C via g_serial

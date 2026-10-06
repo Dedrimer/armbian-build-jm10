@@ -64,6 +64,11 @@ JM10 的板卡入口是 [`config/boards/yjh-jm10-3588.csc`](config/boards/yjh-jm
 
 `JM10_DSA_88E6390` 默认是 `no`。普通单板构建无需额外设置。
 
+另有一项**不需要任何参数、也不受 `KERNEL_CONFIGURE` 影响**的内核改动：内核虚拟
+地址空间被固定在 39 位（`CONFIG_ARM64_VA_BITS=39`，`CONFIG_ARM64_VA_BITS_48` 为
+not set）。原因和去掉的办法见下文
+[39 位虚拟地址空间](#39-位虚拟地址空间android-容器内的游戏)。
+
 ## Proxmox VE 镜像
 
 使用 `PROXMOX=yes` 将镜像构建为 Debian Trixie 上的 Proxmox VE 9 主机。该模式只支持 `amd64` 和 `arm64`，默认主机名为 `pve`（显式传入 `HOST=...` 时保留自定义值），会安装官方 no-subscription 仓库中的 PVE 用户空间与 ZFS DKMS，并保留 Armbian 内核。镜像文件名增加 `-proxmox` 后缀。版本与依赖约束遵循 [Armbian Proxmox 说明](https://docs.armbian.com/software/proxmox-ve/)。
@@ -201,6 +206,75 @@ JM10 不再在板卡 hook 中固定 vendor 内核提交；vendor 内核分支沿
 `rk-6.1-rkr5.1`。loader 和 U-Boot 仍使用上文所述的冻结配置。
 
 两个目录都包含 JM10 DTS 补丁以及针对 DSA、RGMII、Type-C/USB 的修正。补丁会把 `rk3588-yjh-jm10.dts` 注册到对应内核的设备树 Makefile。
+
+### 39 位虚拟地址空间（Android 容器内的游戏）
+
+本仓库的构建**无条件**把内核设成 `CONFIG_ARM64_VA_BITS=39`（相应地
+`CONFIG_ARM64_VA_BITS_48` 为 not set）：不需要 `KERNEL_CONFIGURE`，`KERNEL_CONFIGURE=no`
+也一样生效。
+
+原因：部分 Android 游戏在 Docker 容器里一启动就闪退——它们要预留的地址区间和
+48 位地址空间的布局撞上了，于是在自己的初始化代码里就挂掉。Android 手机本身就是
+4K 页 + 39 位 VA，把容器摆成和手机相同的布局，这些游戏就能起来。**代价是实打实
+的**：用户态地址空间从 128 TiB 降到 256 GiB，`mmap` 随机化位数上限从 33 降到
+24，页表从 4 级降到 3 级。不跑 Android 容器就没必要背着它，见下面「不需要时怎么
+去掉」。
+
+实现在 `config/boards/yjh-jm10-3588.csc` 的
+`custom_kernel_config__JM10-3588_va_bits_39()`，只往 `opts_y` 里加了一条
+`ARM64_VA_BITS_39`。之所以一条就够，是因为 Armbian 内核核心在**每次 arm64 构建**
+里都会强制 48 位：
+
+```bash
+# lib/functions/compilation/armbian-kernel.sh
+function armbian_kernel_config__force_pa_va_48_bits_on_arm64() {
+	if [[ "${ARCH}" == "arm64" ]]; then
+		opts_y+=("ARM64_VA_BITS_48")
+		opts_val["ARM64_PA_BITS"]="48"
+	fi
+}
+```
+
+这个核心 hook 属于 `armbian_kernel_config` 阶段，板卡 hook 属于它之后的
+`custom_kernel_config` 阶段，两个阶段往**同一个** `opts_y` 数组里追加，所以核心的
+`48` 先应用、板卡的 `39` 后应用。两者都进了 `.config` 之后，Kconfig 是按文件顺序
+解析 choice 的，**最后一个 `=y` 的成员胜出**；而 `scripts/config` 对文件里还不存在
+的符号是追加到文件末尾的，所以 `39` 排在 `48` 后面，赢。构建日志里 Kconfig 会留
+一句
+
+```
+.config:2757:warning: override: ARM64_VA_BITS_39 changes choice state
+```
+
+这句 `override` 就是它承认自己按后一条改了 choice，看到它是正常的，不是错误。
+
+由此有一条约束：**不要在 `config/kernel/linux-rk35xx-vendor.config` 里手写任何
+`CONFIG_ARM64_VA_BITS*`**。现在没有，`make savedefconfig`（Armbian 会跑，并把结果
+拷回这个文件）也不会写——39 正是这个 vendor 内核自己的默认值。但手工加上
+`CONFIG_ARM64_VA_BITS_39=y` 会排在核心追加的 `48` **前面**，choice 就又解析回 48 了。
+反过来 `CONFIG_ARM64_VA_BITS_48=y` 无害（上游 Armbian 的配置里就有这行），下一次
+导出会把它去掉。
+
+补一句背景：vendor 6.1 的 `arch/arm64/Kconfig` 里 4K 页的 choice 默认值是 39
+（`default ARM64_VA_BITS_39 if ARM64_4K_PAGES`），和上游 mainline 的 48 不同。所以
+这个改动本质上是「别让核心 hook 把它顶回 48」。
+
+#### 不需要时怎么去掉
+
+不跑 Android 容器的话改回去就行：
+
+```bash
+git revert <本提交>          # 或手动删掉 custom_kernel_config__JM10-3588_va_bits_39()
+./compile.sh BOARD=yjh-jm10-3588 BRANCH=vendor RELEASE=trixie \
+  BUILD_DESKTOP=no BUILD_MINIMAL=yes KERNEL_CONFIGURE=no JM10_DSA_88E6390=yes
+```
+
+内核回到 Armbian 默认的 48 位 VA，其余（DSA、Proxmox、UEFI 等）都不受影响；因为
+`.config` 变了，这一次会重编内核，之后照常命中缓存。刷机后在目标板上确认：
+
+```bash
+zcat /proc/config.gz | grep ARM64_VA_BITS   # 39 位期望：..._39=y、..._48 is not set
+```
 
 ### USB 调试套件（可选，`JM10_USB_DEBUG=yes`）
 
