@@ -122,9 +122,16 @@ GMAC 主接口 `end0` 下的 DSA 从属端口。启用 `JM10_DSA_88E6390=yes` �
 `eth1` 至 `eth8` 而没有 `br0`，先确认构建命令确实传入了该参数，并检查：
 
 ```bash
+modinfo mv88e6xxx   # 驱动本身在不在内核里
+dmesg | grep -i mv88e6xxx
 test -f /etc/netplan/10-dsa-MV88E6XXX-br0.yaml
 sudo netplan generate
 ```
+
+`modinfo mv88e6xxx` 报 “Module not found” 说明内核根本没编出这个驱动，
+与 Netplan 无关：那台机器刷的是没有 `CONFIG_NET_DSA_MV88E6XXX` 的镜像
+（早期板卡 hook 在 `KERNEL_CONFIGURE=yes` 时会跳过这段内核配置），需要
+重编内核并重刷，而不是在目标板上修网络配置。
 
 生成的配置使用 DHCP。如果需要静态地址，应在目标板上修改该 Netplan 文件中的 `br0` 配置，然后执行：
 

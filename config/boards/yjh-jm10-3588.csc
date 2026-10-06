@@ -106,27 +106,37 @@ function extension_prepare_config__dsa() {
 	fi
 }
 
+# Marvell MV88E6390X DSA switch support for the hard-modified JM10 (eth1..eth8
+# are switch ports hanging off the GMAC in DSA mode; see the README).
+#
+# Note the options are *declared*, not written: `opts_y`/`opts_m`/`opts_val` are
+# applied by armbian_kernel_config_apply_opts_from_arrays(), which runs the
+# scripts/config edits when a .config is in place and folds the same list into
+# kernel_config_modifying_hashes when there is none (the artifact-version
+# phase). Writing the .config by hand here -- kernel_config_set_* plus
+# run_kernel_make olddefconfig, behind a `KERNEL_CONFIGURE != yes` guard -- is
+# what made every build that set KERNEL_CONFIGURE=yes silently skip this block
+# and ship a kernel with `# CONFIG_NET_DSA_MV88E6XXX is not set`, i.e. no
+# mv88e6xxx.ko and no switch.
+#
+# Requested on any legacy/vendor build, not only when JM10_DSA_88E6390=yes
+# picks the -dsa image suffix and writes the Netplan bridge: the driver has to
+# be in the kernel either way, and the Kconfig below is the only thing that
+# decides whether it is.
 function custom_kernel_config__JM10-3588_MV88E6XXX() {
-	#if [[ ${JM10_DSA_88E6390} = "yes" ]] && [[ ${BRANCH} = "vendor" || ${BRANCH} = "legacy" ]]; then
-		display_alert "jm10-3588" "Only for Jm10 Hard Change Enabling MV88E6XXX HASH" "info"
-		kernel_config_modifying_hashes+=(
-			"CONFIG_NET_VENDOR_MARVELL=y"
-			"CONFIG_NET_DSA=m"
-			"CONFIG_NET_DSA_MV88E6XXX=m"
-			"CONFIG_NET_DSA_MV88E6XXX_PTP=y"
-			"CONFIG_MVMDIO=y"
-		)
+	display_alert "jm10-3588" "Requesting Marvell MV88E6XXX DSA switch support" "info"
 
-		if [[ -f .config ]] && [[ "${KERNEL_CONFIGURE:-yes}" != "yes" ]]; then
-			display_alert "jm10-3588" "Only for Jm10 Hard Change Enabling dsa MV88E6XXX" "info"
-			kernel_config_set_y CONFIG_NET_VENDOR_MARVELL
-			kernel_config_set_m CONFIG_NET_DSA
-			kernel_config_set_m CONFIG_NET_DSA_MV88E6XXX
-			kernel_config_set_y CONFIG_NET_DSA_MV88E6XXX_PTP
-			kernel_config_set_y CONFIG_MVMDIO
-			run_kernel_make olddefconfig
-		fi
-	#fi
+	# shellcheck disable=SC2034 # read by armbian_kernel_config_apply_opts_from_arrays
+	opts_y+=(
+		"NET_VENDOR_MARVELL"    # gating menu for MVMDIO below (ethernet/marvell/Kconfig)
+		"NET_DSA_MV88E6XXX_PTP" # needs PTP_1588_CLOCK, which the config already has
+		"MVMDIO"                # MDIO bus driver the switch is probed on
+	)
+	# shellcheck disable=SC2034
+	opts_m+=(
+		"NET_DSA"           # already =m in the tracked config; declared so the hash covers it
+		"NET_DSA_MV88E6XXX" # the driver; selects the DSA/EDSA taggers it needs
+	)
 }
 
 # USB debug kit (JM10_USB_DEBUG=yes, vendor branch): g_serial built-in so the
@@ -139,22 +149,22 @@ function custom_kernel_config__JM10-3588_usb_serial_console() {
 	fi
 
 	display_alert "jm10-3588" "Enabling USB gadget serial console (ttyGS0)" "info"
-	kernel_config_modifying_hashes+=(
-		"CONFIG_USB_G_SERIAL=y"
+
+	# Declared rather than written, for the same reason as the MV88E6XXX hook
+	# above: the `KERNEL_CONFIGURE != yes` guard this used to carry meant a
+	# KERNEL_CONFIGURE=yes build got none of it, so the debug kit's console
+	# never came up.
+	# shellcheck disable=SC2034 # read by armbian_kernel_config_apply_opts_from_arrays
+	opts_y+=(
+		"USB_G_SERIAL"
 		# Convert kernel hangs into warm-reboot panics so the pstore/ramoops
 		# crash log survives (warm reset keeps DDR; a hang keeps nobody alive
 		# to log). The PCIe3.0 probe hang shows as an RCU stall (Rockchip PCIe
 		# guide 13.3) - panic on it, then panic=10 in extraargs reboots warm.
-		"CONFIG_BOOTPARAM_RCU_STALL_PANIC=y"
-		"CONFIG_RCU_CPU_STALL_TIMEOUT=10"
+		"BOOTPARAM_RCU_STALL_PANIC"
 	)
-
-	if [[ -f .config ]] && [[ "${KERNEL_CONFIGURE:-yes}" != "yes" ]]; then
-		kernel_config_set_y CONFIG_USB_G_SERIAL
-		kernel_config_set_y CONFIG_BOOTPARAM_RCU_STALL_PANIC
-		kernel_config_set_val CONFIG_RCU_CPU_STALL_TIMEOUT 10
-		run_kernel_make olddefconfig
-	fi
+	# shellcheck disable=SC2034
+	opts_val["RCU_CPU_STALL_TIMEOUT"]="10"
 }
 
 
