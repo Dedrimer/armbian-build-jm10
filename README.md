@@ -61,6 +61,9 @@ JM10 的板卡入口是 [`config/boards/yjh-jm10-3588.csc`](config/boards/yjh-jm
 | `KERNEL_CONFIGURE` | `no` | 不进入交互式内核配置 |
 | `JM10_DSA_88E6390` | `yes`/`no` | 是否生成 Marvell MV88E6390X DSA 八口桥接配置 |
 | `PROXMOX` | `no` | 设为 `yes` 后在 Debian Trixie 上预装 Proxmox VE，保留 Armbian 内核并使用 ifupdown2 |
+| `JM10_NET_BRIDGE_ADDRESS` | 空 | PVE 网桥静态地址，CIDR 格式，如 `192.168.9.210/24`。`PROXMOX=yes` 时**必填**，缺省则构建失败 |
+| `JM10_NET_BRIDGE_GATEWAY` | 空 | PVE 网桥网关，如 `192.168.9.1`。可留空 |
+| `JM10_NET_BRIDGE_DNS` | 空 | PVE 网桥 DNS，如 `192.168.9.101`。可留空 |
 | `ROOTFS_TYPE` | `ext4` | 设为 `squashfs-overlay` 后构建 SquashFS 只读根 + 外置盘 OverlayFS 可写层（见下文） |
 
 `JM10_DSA_88E6390` 默认是 `no`。普通单板构建无需额外设置。
@@ -82,14 +85,17 @@ not set）。原因和去掉的办法见下文
   BUILD_DESKTOP=no \
   BUILD_MINIMAL=yes \
   KERNEL_CONFIGURE=no \
-  PROXMOX=yes
+  PROXMOX=yes \
+  JM10_NET_BRIDGE_ADDRESS=192.168.9.210/24 \
+  JM10_NET_BRIDGE_GATEWAY=192.168.9.1 \
+  JM10_NET_BRIDGE_DNS=192.168.9.101
 ```
 
-网络由 ifupdown2 管理，首次启动会通过 DHCP 配置 `vmbr0`；检测到 DSA 交换机端口时会将 DSA 从属端口加入该桥。Proxmox Web UI 地址为 `https://<主机IP>:8006`，使用 `root` 和系统 root 密码登录。ZFS DKMS 需要可用的 Armbian 内核 headers，因此不支持缺少 headers 的内核配置。
+网络由 ifupdown2 管理，`vmbr0` 使用 `JM10_NET_BRIDGE_ADDRESS` 指定的静态地址。PVE 主机**必须显式指定网桥 IP**：没传就中止构建，不会退回 DHCP。原因是一台靠猜测地址上线的 PVE 主机不可达，只能上串口救，所以构建阶段就拒绝比上线后失败好。Proxmox Web UI 地址为 `https://<指定的IP>:8006`，使用 `root` 和系统 root 密码登录。ZFS DKMS 需要可用的 Armbian 内核 headers，因此不支持缺少 headers 的内核配置。
 
 ## DSA 八口交换机模式
 
-如果 JM10 使用板载 Marvell MV88E6390X 交换机，并希望将 `eth1` 到 `eth8` 加入 `br0`，使用以下命令构建：
+如果 JM10 使用板载 Marvell MV88E6390X 交换机，并希望将可用的 DSA 端口加入 `br0`，使用以下命令构建：
 
 ```bash
 ./compile.sh \
@@ -111,12 +117,40 @@ DSA 模式当前只在 `vendor`/`legacy` 且 `BUILD_DESKTOP=no` 时生成运行�
    以及为解开 Kconfig 依赖上限而必须一起内建的 `CONFIG_IPV6`、`CONFIG_BRIDGE`、
    `CONFIG_HSR`（见下）。
 3. 删除系统生成的 Netplan YAML，并写入 `/etc/netplan/10-dsa-MV88E6XXX-br0.yaml`。
-4. 将 `eth1` 至 `eth8` 加入 `br0`，由 `br0` 通过 DHCP 获取地址。
+4. 将 `eth1 eth2 eth3 eth5 eth6 eth7 eth8` 加入 `br0`（**不含 `eth4`**，见下文），由 `br0` 通过 DHCP 获取地址。
 5. 将 Netplan 渲染器设置为 `networkd`，并关闭交换机端口自身的 DHCP。
 
 注意：板卡 hook 会在 `legacy`/`vendor` 构建中始终请求上述内核配置（无论
 `JM10_DSA_88E6390` 取值）；`JM10_DSA_88E6390` 只控制 `-dsa` 镜像后缀和运行时
 Netplan 桥接文件是否生成。驱动本身必须始终在核里，否则交换机端口根本不会出现。
+
+### 网络配置：普通构建 DHCP / PVE 静态网桥
+
+网桥端口清单只有一处来源：`lib/functions/configuration/jm10-network.sh` 里的
+`JM10_DSA_PORTS`。普通构建（Netplan）和 PVE 构建（ifupdown2）都从同一个数组生成，
+两边不会走偏。
+
+| 构建类型 | 网桥地址 | 配置文件 |
+| --- | --- | --- |
+| 普通构建 | `br0` 走 DHCP | `/etc/netplan/10-dsa-MV88E6XXX-br0.yaml` |
+| `PROXMOX=yes` | `br0` 用静态地址，**必填** | `/etc/network/interfaces` |
+
+普通构建零参数即可联网。PVE 构建则相反，缺 `JM10_NET_BRIDGE_ADDRESS` 会在
+配置阶段直接中止，不会退回 DHCP——具体理由见
+[Proxmox VE 镜像](#proxmox-ve-镜像)。三个参数都可以省略（除地址外），格式不对
+也会立刻报错，不会生成一份带错地址的镜像。
+
+生成的 PVE 配置与实测可用的配置一致：`vmbr0` 静态地址 +
+`bridge-ports eth1 eth2 eth3 eth5 eth6 eth7 eth8`，`end0`（GMAC/DSA master）
+只声明 `manual`、不进桥——它是交换机背后的 CPU 上行口，把它也塞进 `br0`
+会把管理路径放进它本该承载的桥里。
+
+#### 为什么 eth4 被排除
+
+板上 `eth1`–`eth8` 是 Marvell MV88E6390X 的 8 个 DSA user port，但 **`eth4`
+没有引出物理网口**。把一个没有 PHY 的端口写进 `bridge-ports`，ifupdown2 会把
+桥视为配置失败，`vmbr0` 起不来，网络整体不可用。因此 `eth4` 不出现在任何桥
+配置里，也不单独声明——端口清单和实测可用的配置严格一致。
 
 ### 为什么 IPV6 / BRIDGE / HSR 也被强制内建
 

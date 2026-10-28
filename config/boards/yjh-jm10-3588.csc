@@ -280,60 +280,13 @@ function post_family_tweaks__JM10-3588_enable_services() {
 		#桌面配置	网络使用NetworkManager,自行图形化配置网桥,暂不用10-dsa-MV88E6XXX-br0.yaml配置网桥
 		display_alert "$BOARD" "Only for Jm10 Hard Change del 10-dhcp-all-interfaces.yaml and add 10-dsa-MV88E6XXX-br0.yaml" "info"
 		rm -rf ${SDCARD}/etc/netplan/*.yaml
-		cat <<- EOF > "${SDCARD}/etc/netplan/10-dsa-MV88E6XXX-br0.yaml"
-# Let NetworkManager manage all devices on this system
-network:
-  version: 2
-  renderer: networkd
-  ethernets:
-    eth1:
-      dhcp4: no
-      dhcp6: no
-    eth2:
-      dhcp4: no
-      dhcp6: no
-    eth3:
-      dhcp4: no
-      dhcp6: no
-    eth4:
-      dhcp4: no
-      dhcp6: no
-    eth5:
-      dhcp4: no
-      dhcp6: no
-    eth6:
-      dhcp4: no
-      dhcp6: no
-    eth7:
-      dhcp4: no
-      dhcp6: no 
-    eth8:
-      dhcp4: no
-      dhcp6: no
-  bridges:
-    br0:
-      interfaces:
-        - eth1
-        - eth2
-        - eth3
-        - eth4
-        - eth5
-        - eth6
-        - eth7
-        - eth8
-      dhcp4: yes
-      dhcp6: yes
-      #addresses:
-      #  - 192.168.3.166/24
-      #routes:
-      #  - to: default
-      #    via: 192.168.3.1
-      #nameservers:
-      #  addresses: [192.168.3.1, 8.8.8.8]
-      parameters:
-        stp: false
-EOF
-	chmod 600 "${SDCARD}/etc/netplan/10-dsa-MV88E6XXX-br0.yaml"
+		# Generated from the shared port list in lib/functions/configuration/
+		# jm10-network.sh, so the plain and PVE builds cannot drift apart. eth4
+		# is not in that list: the board does not route it to a connector, and
+		# enslaving a port with no PHY stops ifupdown2/networkd from bringing
+		# br0 up at all.
+		jm10_net_write_netplan_bridge "${SDCARD}/etc/netplan/10-dsa-MV88E6XXX-br0.yaml"
+		chmod 600 "${SDCARD}/etc/netplan/10-dsa-MV88E6XXX-br0.yaml"
 	fi
 
 	return 0

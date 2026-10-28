@@ -564,6 +564,10 @@ source "${SRC}"/lib/functions/configuration/interactive.sh
 #set -o nounset   ## set -u : exit the script if you try to use an uninitialised variable - one day will be enabled
 set -o errtrace # trace ERR through - enabled
 set -o errexit  ## set -e : exit the script if any statement returns a non-true return value - enabled
+### lib/functions/configuration/jm10-network.sh
+# shellcheck source=lib/functions/configuration/jm10-network.sh
+source "${SRC}"/lib/functions/configuration/jm10-network.sh
+
 ### lib/functions/configuration/main-config.sh
 # shellcheck source=lib/functions/configuration/main-config.sh
 source "${SRC}"/lib/functions/configuration/main-config.sh

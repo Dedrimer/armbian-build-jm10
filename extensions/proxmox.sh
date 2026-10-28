@@ -1,4 +1,4 @@
-# @description Builds a Proxmox VE 9 host image from Debian Trixie on amd64/arm64. Set `PROXMOX=yes` to install the official no-subscription userspace while retaining the Armbian kernel, add ZFS DKMS, select ifupdown2 networking with a DHCP `vmbr0`, and default the hostname to `pve`.
+# @description Builds a Proxmox VE 9 host image from Debian Trixie on amd64/arm64. Set `PROXMOX=yes` to install the official no-subscription userspace while retaining the Armbian kernel, add ZFS DKMS, select ifupdown2 networking with a **static** `vmbr0`, and default the hostname to `pve`. A static bridge address is mandatory: pass `JM10_NET_BRIDGE_ADDRESS=192.168.9.210/24` (plus optional `JM10_NET_BRIDGE_GATEWAY` / `JM10_NET_BRIDGE_DNS`) or the build fails rather than shipping an unreachable host.
 
 function extension_prepare_config__proxmox() {
 	if [[ "${DISTRIBUTION}" != "Debian" || "${RELEASE}" != "trixie" ]]; then
@@ -15,6 +15,15 @@ function extension_prepare_config__proxmox() {
 	if [[ -z "${EXTRA_ROOTFS_MIB_SIZE}" || "${EXTRA_ROOTFS_MIB_SIZE}" -lt 4096 ]]; then
 		declare -g EXTRA_ROOTFS_MIB_SIZE=4096
 	fi
+
+	# Fail here, at configuration time, rather than an hour into the build: a PVE
+	# host that guesses its own address is unreachable and can only be recovered
+	# over a serial console, so there is no sensible default to fall back to.
+	if [[ -z "${JM10_NET_BRIDGE_ADDRESS}" ]]; then
+		exit_with_error "PROXMOX=yes requires an explicit bridge address" \
+			"set JM10_NET_BRIDGE_ADDRESS=192.168.9.210/24 (optionally JM10_NET_BRIDGE_GATEWAY / JM10_NET_BRIDGE_DNS)"
+	fi
+	jm10_net_validate_params
 }
 
 function extension_finish_config__proxmox_require_kernel_headers() {
@@ -37,7 +46,20 @@ function pre_customize_image__proxmox_network_setup() {
 	# Some base images do not ship every networking unit. The helper keeps the
 	# diagnostic output but can still return 1 when there is nothing to report.
 	disable_systemd_service_sdcard NetworkManager.service NetworkManager-wait-online.service systemd-networkd.service systemd-networkd-wait-online.service || true
-	run_host_command_logged cp -pv "${SRC}/extensions/proxmox/interfaces" "${SDCARD}/etc/network/interfaces"
+
+	# Rendered here, not copied: extensions/proxmox/interfaces is a mako
+	# template, and nothing in the build pipeline ever rendered it -- the file
+	# used to be installed verbatim, so a PVE image came up with literal
+	# "<% import os %>" as its /etc/network/interfaces and no usable network.
+	#
+	# Generated on the host rather than in the chroot: python3-mako is only
+	# installed into the image later (post_repo_customize_image), so a
+	# chroot-side render at this point has no mako available either.
+	#
+	# A PVE host must not guess its address: an unreachable host can only be
+	# fixed over a console. jm10_net_write_pve_interfaces() therefore requires
+	# JM10_NET_BRIDGE_ADDRESS and fails the build when it is missing.
+	jm10_net_write_pve_interfaces "${SDCARD}/etc/network/interfaces"
 	chmod 644 "${SDCARD}/etc/network/interfaces"
 }
 
