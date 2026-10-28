@@ -1,0 +1,65 @@
+#!/bin/sh
+
+# SPDX-License-Identifier: GPL-2.0
+#
+# initramfs-tools hook: copy the tools the SquashFS+OverlayFS boot script needs
+# but that no default hook provides.
+#
+# Without this the initramfs has no mke2fs and no fdisk, so an uninitialized
+# external disk could never be partitioned and formatted -- the whole
+# auto-detection feature would be dead on arrival.
+#
+# Kept deliberately small: the Armbian initramfs is ~23 MiB, and this adds ~2.3
+# MiB of binaries plus their libraries. copy_exec() pulls in the dependencies.
+
+set -e
+
+PREREQ=""
+
+prereqs() {
+	echo "${PREREQ}"
+}
+
+case "${1}" in
+	prereqs)
+		prereqs
+		exit 0
+		;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+# hook-functions' copy_file() dereferences ${verbose?}. mkinitramfs always sets
+# it, but a standalone run (or a future caller) does not, and the hard failure
+# would abort the whole initramfs build.
+: "${verbose:=n}"
+
+# Formatting the overlay upper. mke2fs is a thin wrapper over libext2fs, so
+# copy_exec() brings in libext2fs/libcom_err/libblkid/libuuid/libe2p/libc.
+if [ -x /usr/sbin/mke2fs ]; then
+	copy_exec /usr/sbin/mke2fs
+fi
+
+# Partitioning a blank disk. Brings in libfdisk/libsmartcols/libtinfo/
+# libreadline.
+if [ -x /usr/sbin/fdisk ]; then
+	copy_exec /usr/sbin/fdisk
+fi
+
+# wipefs is preferred over the script's dd fallback when it is available.
+if [ -x /usr/sbin/wipefs ]; then
+	copy_exec /usr/sbin/wipefs
+fi
+
+# losetup: klibc's mount has no `-o loop`, so the script attaches the squashfs
+# to a loop device itself. Already in the initramfs (klibc-utils) on most
+# systems; copy anyway so a slimmer host build still works.
+if [ -x /usr/sbin/losetup ]; then
+	copy_exec /usr/sbin/losetup
+fi
+
+# blkid -p: probing a disk for an existing overlay label, bypassing the cache
+# (there is no blkid cache in the initramfs).
+if [ -x /usr/sbin/blkid ]; then
+	copy_exec /usr/sbin/blkid
+fi

@@ -178,6 +178,12 @@ function do_main_configuration() {
 		nilfs2)
 			enable_extension "fs-nilfs2-support"
 			;;
+		squashfs-overlay)
+			# SquashFS read-only lower + OverlayFS writable upper on external storage.
+			# Everything runtime (disk detection, partition creation, overlay mount) lives
+			# in the fs-squashfs-overlay-support extension, auto-enabled here.
+			enable_extension "fs-squashfs-overlay-support"
+			;;
 		*)
 			exit_with_error "Unknown rootfs type: ROOTFS_TYPE='${ROOTFS_TYPE}'"
 			;;
@@ -187,7 +193,10 @@ function do_main_configuration() {
 	# Skipped for nfs / nfs-root: these rootfs types produce a tarball on the
 	# host (rootfs-to-image.sh `tar | gzip`) and never mount NFS locally — the
 	# target's kernel mounts it at boot time, so host FS support is irrelevant.
-	if [[ $CONFIG_DEFS_ONLY != yes && $ROOTFS_TYPE != nfs && $ROOTFS_TYPE != nfs-root ]]; then # don't waste time if only gathering config defs
+	# Skipped for squashfs-overlay: it is not a real fs type but a stack (a
+	# squashfs image + an overlay mount), assembled by the extension after the
+	# rootfs is complete, so neither `modprobe` nor mkfs apply to it.
+	if [[ $CONFIG_DEFS_ONLY != yes && $ROOTFS_TYPE != nfs && $ROOTFS_TYPE != nfs-root && $ROOTFS_TYPE != squashfs-overlay ]]; then # don't waste time if only gathering config defs
 		check_filesystem_compatibility_on_host
 	fi
 

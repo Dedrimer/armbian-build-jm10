@@ -61,6 +61,7 @@ JM10 的板卡入口是 [`config/boards/yjh-jm10-3588.csc`](config/boards/yjh-jm
 | `KERNEL_CONFIGURE` | `no` | 不进入交互式内核配置 |
 | `JM10_DSA_88E6390` | `yes`/`no` | 是否生成 Marvell MV88E6390X DSA 八口桥接配置 |
 | `PROXMOX` | `no` | 设为 `yes` 后在 Debian Trixie 上预装 Proxmox VE，保留 Armbian 内核并使用 ifupdown2 |
+| `ROOTFS_TYPE` | `ext4` | 设为 `squashfs-overlay` 后构建 SquashFS 只读根 + 外置盘 OverlayFS 可写层（见下文） |
 
 `JM10_DSA_88E6390` 默认是 `no`。普通单板构建无需额外设置。
 
@@ -400,6 +401,110 @@ LBA 0 写入），再把完整 Armbian 镜像烧到外置 USB2 盘或 mSATA，�
    外置盘启动）；mSATA/SCSI 引导路径尚待实测。观察引导顺序可用
    `JM10_USB_DEBUG=yes` 的 ttyGS0 控制台看 `Scanning usb 0:1` →
    `scsi 0` → `mmc1` → `mmc0`。
+
+### SquashFS + OverlayFS 只读根（可选，`ROOTFS_TYPE=squashfs-overlay`）
+
+构建一个「只读 SquashFS 根 + 外置盘 OverlayFS 可写层」的镜像。整个根文件
+系统被打包成镜像内的 `/boot/armbian/rootfs.squashfs`，eMMC/SD 上只放一个
+很小的 ext4 分区；**首次启动时自动探测外置存储（mSATA/SATA/USB 盘），
+自动分区、格式化并初始化**为 overlay 上层，之后所有写入都落在外置盘上。
+
+```bash
+./compile.sh BOARD=yjh-jm10-3588 BRANCH=vendor RELEASE=trixie \
+  BUILD_DESKTOP=no BUILD_MINIMAL=no KERNEL_CONFIGURE=no \
+  JM10_DSA_88E6390=yes ROOTFS_TYPE=squashfs-overlay
+```
+
+由 `extensions/fs-squashfs-overlay-support/` 实现（`main-config.sh` 里
+`ROOTFS_TYPE=squashfs-overlay` 时自动 `enable_extension`），构建期做的事：
+
+- 根文件系统用 `mksquashfs`（默认 `zstd`）打包成
+  `/boot/armbian/rootfs.squashfs`，与内核、dtb、initrd、boot.scr、
+  `armbianEnv.txt`、最终版 `/etc/fstab` 同处一个 ext4 分区。`proc`、
+  `sys`、`dev`、`run`、`tmp`、`var/tmp` 的内容被排除但保留空目录。
+- 把构建期默认值写进 `/boot/armbian/overlay.env`（标签、分区号、超时），
+  运行时脚本读取它，内核 cmdline 可覆盖。
+- `SQUASHFS`、`SQUASHFS_ZSTD`、`OVERLAY_FS`、`EXT4_FS` 强制为内核内建
+  （`=y`）：squashfs 下层和 overlay 栈必须在挂载 `/` 之前就位，不能是模块。
+- initramfs 固定加入 `squashfs overlay ext4 ahci nvme usb-storage uas
+  loop` 等模块，并用一个 initramfs-tools hook 额外放进 `mke2fs` 与 `fdisk`
+  —— 默认 initramfs 里**没有**这两个工具，不放就无从初始化空白外置盘。
+- 镜像名加 `-squashfs` 后缀；`extraargs` 注入 `armbian_overlay=1` 作为
+  运行时开关，`/etc/fstab` 的 `/` 条目改为注释（由 initramfs 挂载）。
+
+启动流程（`extensions/fs-squashfs-overlay-support/local-bottom/
+squashfs-overlay.sh`，位于 `local-bottom` 的原因见文件头注释）：
+
+1. 内核引导 ext4 underlay，initramfs 把它只读挂在 `${rootmnt}`，
+   `mountroot()` 完成常规挂载。
+2. `local-bottom` 阶段：探测外置盘 → **先做只读的 marker 校验**（详见下文）→
+   认领已有盘，或对可证明为空白的盘 `dd` 清签名、`fdisk` 分区、
+   `mke2fs -L ARMBIAN_OVL` 格式化并写入 marker → 挂到 `/run/overlay-upper` →
+   用 `losetup` + `mount -t squashfs` 挂只读下层 → 在 `${rootmnt}` 上叠
+   `mount -t overlay`。
+3. `run-init` 清空 initramfs 根并把 `${rootmnt}` 覆盖挂载为新的 `/`。
+   `run-init` 的清理只递归 `st_dev` 与 `/` 相同的条目，`/run` 下的挂载点
+   因此全部保留，overlay 成为真正的根。
+
+降级路径（**任一环节失败都不会导致无法启动**，退化为只读根）：
+
+| 情况 | 行为 |
+| --- | --- |
+| 找不到外置盘（等 `SQUASHFS_OVERLAY_TIMEOUT` 秒） | 根保持只读 underlay |
+| 外置盘带有**有效 marker** | 直接复用，数据不丢 |
+| 外置盘有数据但**没有有效 marker** | **跳过且完全不动**，根保持只读 |
+| 外置盘可证明为空白（blkid 无 TYPE/PTTYPE/LABEL/UUID） | 自动分区 + 格式化 + 写 marker 后使用 |
+| 没有空闲 loop 设备 | 退而用 underlay 当下层（overlay 仍可用，但可写） |
+| overlay 挂载失败 | 根保持只读 underlay |
+
+### 校验 marker：只有它不存在时才初始化
+
+标签本身**不足以**证明这块盘是自己的——16 字节的 ext4 label 是可见文本，任何
+工具都能设成 `ARMBIAN_OVL`。因此额外在外置盘里写一个校验文件：
+
+```
+<overlay 上层挂载点>/state/marker
+ARMBIAN_OVL_MARKER v1 uuid=<该文件系统自身的 UUID>
+```
+
+启动脚本的判定逻辑：
+
+- **有有效 marker**（magic + 版本 + UUID 与文件系统实际 UUID 一致）→ 这块盘
+  是自己的，直接复用，不清空、不格式化，数据完整保留。
+- **没有有效 marker**（没有该文件、内容损坏、UUID 不符、magic/版本不对）→
+  **不是自己的**，再看整盘是否可证明为空白：
+  - 空白（blkid 探不到任何 TYPE/PTTYPE/LABEL/UUID）→ 分区、格式化并写入 marker；
+  - 非空白 → **跳过这块盘，不做任何写操作**，本次启动根保持只读。
+
+这个检查是只读的（只读挂载 → 读文件 → 卸载），并且发生在任何写操作**之前**，
+所以误判不可能造成数据丢失：只有在已经证明盘是空白的情况下才会初始化它。
+marker 由 `format_partition()` 在 `mke2fs` 成功后立刻写入，因此下次启动会重新
+认领这块盘，而不是再次初始化、丢掉期间写入的数据。
+
+指定 `SQUASHFS_OVERLAY_DISK` 也**不会**绕过该检查：非空白且无有效 marker 的盘
+会被拒绝并提示手动处理，避免变量写错把有数据的盘清掉。
+
+可用旋钮（均可省略；内核 cmdline 里的 `squashfs_overlay_*=...` 优先级最高）：
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `ROOTFS_TYPE` | `ext4` | 设为 `squashfs-overlay` 启用本功能 |
+| `SQUASHFS_COMPRESSION` | `zstd` | squashfs 压缩算法（`zstd`/`xz`/`lzo`/`gzip`） |
+| `SQUASHFS_OVERLAY_LABEL` | `ARMBIAN_OVL` | overlay 分区的 ext4 标签，1–16 字符 `[A-Za-z0-9_.-]` |
+| `SQUASHFS_OVERLAY_DISK` | 自动探测 | 指定盘（如 `/dev/sda`）则跳过自动探测 |
+| `SQUASHFS_OVERLAY_PART` | `1` | 创建/使用的分区号 |
+| `SQUASHFS_OVERLAY_TIMEOUT` | `20` | 等待外置盘出现的秒数 |
+
+运行中可检查：`cat /var/lib/armbian/overlay/mode` 为
+`squashfs+overlayfs`；overlay 上层挂在 `/var/lib/armbian/overlay`，状态信息见
+`/run/overlay-upper/state/overlay.info`。排查启动问题可
+在 `armbianEnv.txt` 的 `extraargs` 里临时去掉 `armbian_overlay=1`，即回到
+普通 ext4 根启动。
+
+注意：**只有可证明为空白的盘才会被分区并格式化**。有数据的盘即使标签恰好是
+`ARMBIAN_OVL`，只要没有有效 marker 就会被跳过、完全不动（本次启动根为只读），
+不会清盘。框架另外会自动跳过引导盘、已挂载的盘和虚拟设备，不会碰 eMMC/SD
+上的系统。
 
 ### PCIe / mSATA（板上未引出 PCIe 线路）
 
